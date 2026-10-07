@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ortsklimat</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --card: #ffffff; --text: #1c2330; --muted: #5f6b7a; --line: #dfe3e8;
+    --accent: #1f5fa8; --accent-text: #ffffff; --warn-bg: #fff4d6; --warn-text: #6b4e00; --err: #a4262c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14181e; --card: #1d232b; --text: #e6e9ee; --muted: #9aa5b3; --line: #313a45;
+      --accent: #5b9be0; --accent-text: #0e1318; --warn-bg: #3d3210; --warn-text: #f2d88a; --err: #ff8a8f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.45 "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 32px 16px 48px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  .lead { color: var(--muted); margin: 0 0 20px; }
+  form { display: flex; gap: 8px; margin-bottom: 16px; }
+  input[type=text] { flex: 1; min-width: 0; padding: 10px 12px; font: inherit; color: inherit; background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
+  button { padding: 10px 18px; font: inherit; font-weight: 600; color: var(--accent-text); background: var(--accent); border: 0; border-radius: 8px; cursor: pointer; }
+  button:disabled { opacity: .6; cursor: default; }
+  .alts { margin: 0 0 16px; color: var(--muted); font-size: .9rem; }
+  .alts button { padding: 3px 10px; margin: 4px 6px 0 0; font-weight: 400; font-size: .9rem; color: var(--text); background: var(--card); border: 1px solid var(--line); }
+  .status { color: var(--muted); margin: 0 0 16px; min-height: 1.4em; }
+  .status.err { color: var(--err); }
+  .result { display: grid; grid-template-columns: 1fr 190px; gap: 16px; align-items: start; }
+  @media (max-width: 640px) { .result { grid-template-columns: 1fr; } .map { max-width: 190px; } }
+  .result > * { min-width: 0; }
+  td { overflow-wrap: anywhere; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; }
+  caption { text-align: left; padding: 14px 16px 10px; font-weight: 600; font-size: 1.1rem; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 16px; border-top: 1px solid var(--line); }
+  th { font-weight: 400; color: var(--muted); width: 42%; }
+  td .val { font-weight: 600; font-variant-numeric: tabular-nums; }
+  td small { display: block; color: var(--muted); font-size: .82rem; }
+  .warn { display: block; margin-top: 6px; padding: 6px 8px; border-radius: 6px; background: var(--warn-bg); color: var(--warn-text); font-size: .85rem; }
+  .scale { display: block; position: relative; height: 8px; max-width: 220px; margin: 8px 0 6px; border-radius: 4px; background: linear-gradient(90deg, #e8c27a, #cfd8dc 45%, #4a8fd6); }
+  .scale .mark { position: absolute; top: -4px; width: 4px; height: 16px; margin-left: -2px; border-radius: 2px; background: var(--text); box-shadow: 0 0 0 2px var(--card); }
+  .map { position: relative; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 8px; }
+  .map .frame { position: relative; }
+  .map img { display: block; width: 100%; height: auto; }
+  .map .dot { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: #e02424; border: 2px solid #fff; box-shadow: 0 0 0 1px #e02424; }
+  footer { margin-top: 20px; color: var(--muted); font-size: .82rem; }
+  footer a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Ortsklimat</h1>
+  <p class="lead">Skriv en ort i Sverige och få årsmedeltemperatur, årsmedelnederbörd och slagregnszon.</p>
+  <form id="form">
+    <input type="text" id="ort" placeholder="t.ex. Borås" autocomplete="off" autofocus aria-label="Ort">
+    <button type="submit" id="go">Sök</button>
+  </form>
+  <div class="alts" id="alts"></div>
+  <p class="status" id="status"></p>
+  <div class="result" id="result" hidden>
+    <div class="card"><table id="table"></table></div>
+    <div class="map"><div class="frame"><img id="mapimg" alt="Karta över slagregnszoner" src="data:image/png;base64,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"><span class="dot" id="dot"></span></div></div>
+  </div>
+  <footer>
+    Temperatur och nederbörd: medelvärden 1991–2020 beräknade från månadsvärden vid närmaste SMHI-station med tillräcklig mätserie (SMHI öppna data).
+    Nederbörd relativt Sverige: ortens värde jämfört med 1991–2020-medelvärdet vid alla SMHI-stationer med tillräcklig mätserie; stationerna ligger tätare i söder och glesare i fjällen, så jämförelsen är inte ytviktad.
+    Klimatzon energi: geografisk justeringsfaktor F<sub>geo</sub> per kommun enligt Boverkets byggregler, samt den äldre indelningen i klimatzon I–IV.
+    Snölast, vindhastighet och max/min lufttemperatur: Boverkets öppna API för klimatlaster (BFS 2024:6) – vägledande värden med skarpa zongränser, den tryckta författningen gäller.
+    Ortssökning: © OpenStreetMap-bidragsgivare (Nominatim). Höjd: Open-Meteo.
+    Slagregnszon: uppslag i en digitaliserad, förenklad zonkarta – noggrannheten är omkring 10–20 km, kontrollera mot kartan nära zongränser.
+  </footer>
+</main>
+<script>
+"use strict";
+
+// ---------- Slagregnszoner (digitaliserad karta, pixelkoordinater i kartbilden 300 x 642) ----------
+const MAP_W = 300, MAP_H = 642;
+// Affin inpassning SWEREF 99 TM -> kartpixel, u = (E - 500000)/1000, v = (N - 6800000)/1000
+const AFF = [108.51714499733191, 0.46711424384592354, -0.024977766445280034, 360.27957645510577, -0.022155001979209582, -0.4061146550990275];
+const KM_PER_PX_X = 2.14, KM_PER_PX_Y = 2.46;
+const NEAR_KM = 20;
+
+const LINE_A = [184,31, 163,60, 152,80, 140,100, 126,130, 117,150, 105,180, 90,220, 83,237, 75,247, 62,258, 56,268, 54,280, 54,322, 51,332, 46,337, 26,337];
+const LINE_B = [294,133, 280,129, 265,129, 252,133, 240,143, 232,155, 228,170, 228,185, 231,198, 237,212, 225,225, 212,238, 200,250, 185,265, 170,281, 162,292, 157,305, 155,320, 153,345, 152,375, 151,400, 148,415, 143,430, 143,438, 148,446, 158,452, 166,458, 168,465, 163,471, 150,474, 135,474, 118,470, 105,461, 93,451, 80,444, 68,442, 58,445, 50,455, 43,468, 36,474, 25,472, 12,477];
+const LINE_E = [12,477, 20,487, 30,492, 38,496, 45,501, 49,510, 51,525, 55,544, 60,560, 64,572, 68,583, 69,589, 65,596, 62,606, 64,615, 68,624, 72,630, 85,631, 93,630, 97,623, 98,610, 101,600, 106,595, 120,593, 135,591, 148,590, 153,580, 160,566, 166,553, 170,540, 172,525, 172,505, 174,494, 181,486, 194,480, 206,470, 213,460, 221,440, 226,420, 229,402];
+const LINE_F = [5,486, 12,495, 20,502, 27,511, 32,520, 39,532, 44,544, 49,560, 52,573, 52,588, 37,599];
+const OVAL = [102,507, 110,498, 123,493, 138,494, 148,499, 153,510, 153,525, 151,540, 147,552, 141,565, 130,575, 117,579, 105,575, 97,565, 94,552, 95,535, 97,520];
+const TAIL = [231,385, 350,300];
+
+const POLY_5 = [184,-50].concat(LINE_A, [-50,337, -50,-50]);
+const POLY_2 = [350,133].concat(LINE_B, LINE_E.slice(2), TAIL);
+const POLY_4 = [0,481].concat(LINE_F, [-50,663, -50,481]);
+const POLY_3 = LINE_E.concat(TAIL, [350,700, -50,700, -50,477]);
+const BOUNDARIES = [LINE_A, LINE_B, LINE_E, LINE_F, OVAL.concat(OVAL.slice(0, 2))];
+
+// Allvarlighetsgrad per zon: zon 1 lägst och zon 5 högst slagregnsmängd. pos = markörens läge på skalan i procent.
+const RAIN_SEVERITY = {
+  1: { label: "Låg", pos: 10, note: "Lägsta slagregnsmängden (zon 1 av 5)" },
+  2: { label: "Måttlig", pos: 30, note: "Näst lägsta slagregnsmängden (zon 2 av 5)" },
+  3: { label: "Förhöjd", pos: 50, note: "Mellersta slagregnsmängden (zon 3 av 5)" },
+  4: { label: "Hög", pos: 70, note: "Näst högsta slagregnsmängden (zon 4 av 5)" },
+  5: { label: "Mycket hög", pos: 90, note: "Högsta slagregnsmängden (zon 5 av 5)" },
+};
+
+function inPoly(poly, x, y) {
+  let c = false;
+  for (let i = 0, n = poly.length / 2, j = n - 1; i < n; j = i++) {
+    const xi = poly[2 * i], yi = poly[2 * i + 1], xj = poly[2 * j], yj = poly[2 * j + 1];
+    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c;
+  }
+  return c;
+}
+
+function zoneAtPixel(x, y) {
+  if (inPoly(POLY_5, x, y)) return 5;
+  if (inPoly(OVAL, x, y)) return 1;
+  if (inPoly(POLY_2, x, y)) return 2;
+  if (inPoly(POLY_4, x, y)) return 4;
+  if (inPoly(POLY_3, x, y)) return 3;
+  return 1;
+}
+
+// Närmaste zongräns: avstånd i km och zonen på andra sidan
+function nearestBoundary(x, y) {
+  let best = { km: Infinity, qx: x, qy: y };
+  for (const line of BOUNDARIES) {
+    for (let i = 0; i + 3 < line.length; i += 2) {
+      const ax = line[i] * KM_PER_PX_X, ay = line[i + 1] * KM_PER_PX_Y, bx = line[i + 2] * KM_PER_PX_X, by = line[i + 3] * KM_PER_PX_Y;
+      const px = x * KM_PER_PX_X, py = y * KM_PER_PX_Y;
+      const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
+      const t = len2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2)) : 0;
+      const qx = ax + t * dx, qy = ay + t * dy, km = Math.hypot(px - qx, py - qy);
+      if (km < best.km) best = { km, qx: qx / KM_PER_PX_X, qy: qy / KM_PER_PX_Y };
+    }
+  }
+  const d = Math.hypot(best.qx - x, best.qy - y);
+  best.otherZone = d > 0 ? zoneAtPixel(best.qx + (best.qx - x) / d * 3, best.qy + (best.qy - y) / d * 3) : null;
+  return best;
+}
+
+// ---------- Koordinater ----------
+// WGS84/SWEREF 99 lat/lon -> SWEREF 99 TM (Gauss-Krüger, GRS 80)
+function toSweref(latDeg, lonDeg) {
+  const a = 6378137, f = 1 / 298.257222101, k0 = 0.9996, lon0 = 15 * Math.PI / 180;
+  const e2 = f * (2 - f), n = f / (2 - f);
+  const ah = a / (1 + n) * (1 + n * n / 4 + n ** 4 / 64);
+  const A = e2, B = (5 * e2 ** 2 - e2 ** 3) / 6, C = (104 * e2 ** 3 - 45 * e2 ** 4) / 120, D = 1237 * e2 ** 4 / 1260;
+  const phi = latDeg * Math.PI / 180, dl = lonDeg * Math.PI / 180 - lon0;
+  const s2 = Math.sin(phi) ** 2;
+  const ps = phi - Math.sin(phi) * Math.cos(phi) * (A + B * s2 + C * s2 * s2 + D * s2 * s2 * s2);
+  const xi = Math.atan(Math.tan(ps) / Math.cos(dl)), eta = Math.atanh(Math.cos(ps) * Math.sin(dl));
+  const b = [n / 2 - 2 * n * n / 3 + 5 * n ** 3 / 16 + 41 * n ** 4 / 180, 13 * n * n / 48 - 3 * n ** 3 / 5 + 557 * n ** 4 / 1440, 61 * n ** 3 / 240 - 103 * n ** 4 / 140, 49561 * n ** 4 / 161280];
+  let N = xi, E = eta;
+  for (let i = 1; i <= 4; i++) {
+    N += b[i - 1] * Math.sin(2 * i * xi) * Math.cosh(2 * i * eta);
+    E += b[i - 1] * Math.cos(2 * i * xi) * Math.sinh(2 * i * eta);
+  }
+  return { E: k0 * ah * E + 500000, N: k0 * ah * N };
+}
+
+function toMapPixel(sw) {
+  const u = (sw.E - 500000) / 1000, v = (sw.N - 6800000) / 1000;
+  return { x: AFF[0] + AFF[1] * u + AFF[2] * v, y: AFF[3] + AFF[4] * u + AFF[5] * v };
+}
+
+function distKm(lat1, lon1, lat2, lon2) {
+  const r = Math.PI / 180, dLat = (lat2 - lat1) * r, dLon = (lon2 - lon1) * r;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin(dLon / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(h));
+}
+
+// ---------- SMHI: normalvärden 1991–2020 från månadsvärden ----------
+const SMHI = "https://opendata-download-metobs.smhi.se/api/version/1.0/parameter/";
+const PARAM_TEMP = 22, PARAM_PRECIP = 23;
+const NORM_FROM = 1991, NORM_TO = 2020, MIN_YEARS = 24, MAX_TRIES = 8;
+const DAYS = [31, 28.25, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+const MONTHS = ["januari", "februari", "mars", "april", "maj", "juni", "juli", "augusti", "september", "oktober", "november", "december"];
+const stationCache = {};
+
+async function getJson(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error("HTTP " + r.status + " från " + new URL(url).hostname);
+  return r.json();
+}
+
+function stations(param) {
+  if (!stationCache[param]) stationCache[param] = getJson(SMHI + param + ".json").then(d => d.station).catch(e => { delete stationCache[param]; throw e; });
+  return stationCache[param];
+}
+
+// Månadsmedel per kalendermånad för normalperioden, eller null om serien är för kort
+async function monthlyNormals(param, stationKey) {
+  const r = await fetch(SMHI + param + "/station/" + stationKey + "/period/corrected-archive/data.csv");
+  if (!r.ok) return null;
+  const lines = (await r.text()).split(/\r?\n/);
+  const start = lines.findIndex(l => l.startsWith("Från Datum Tid (UTC)"));
+  if (start < 0) return null;
+  const sum = new Array(12).fill(0), cnt = new Array(12).fill(0);
+  for (let i = start + 1; i < lines.length; i++) {
+    const c = lines[i].split(";");
+    const m = /^(\d{4})-(\d{2})$/.exec(c[2] || "");
+    const v = parseFloat(c[3]);
+    if (!m || isNaN(v) || +m[1] < NORM_FROM || +m[1] > NORM_TO) continue;
+    sum[+m[2] - 1] += v; cnt[+m[2] - 1]++;
+  }
+  if (cnt.some(n => n < MIN_YEARS)) return null;
+  return { means: sum.map((s, i) => s / cnt[i]), years: Math.min(...cnt) };
+}
+
+async function nearestNormals(param, lat, lon) {
+  const need0 = Date.UTC(NORM_FROM + 30 - MIN_YEARS, 0, 1), need1 = Date.UTC(NORM_TO - 30 + MIN_YEARS, 11, 31);
+  const cands = (await stations(param))
+    .filter(s => s.from <= need0 && s.to >= need1)
+    .map(s => ({ s, km: distKm(lat, lon, s.latitude, s.longitude) }))
+    .sort((a, b) => a.km - b.km)
+    .slice(0, MAX_TRIES);
+  for (const c of cands) {
+    const n = await monthlyNormals(param, c.s.key);
+    if (n) return { means: n.means, years: n.years, name: c.s.name, km: c.km, height: c.s.height };
+  }
+  return null;
+}
+
+// ---------- Ortssökning och höjd ----------
+async function geocode(q) {
+  const url = "https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=se&limit=6&addressdetails=1&accept-language=sv&q=" + encodeURIComponent(q);
+  const hits = await getJson(url);
+  return hits.map(h => {
+    const a = h.address || {};
+    return {
+      lat: +h.lat, lon: +h.lon,
+      name: h.name || a.city || a.town || a.village || a.hamlet || q,
+      kommun: a.municipality || "", lan: a.county || "",
+    };
+  }).filter((h, i, arr) => arr.findIndex(o => distKm(h.lat, h.lon, o.lat, o.lon) < 5) === i);
+}
+
+async function elevation(lat, lon) {
+  try {
+    const d = await getJson("https://api.open-meteo.com/v1/elevation?latitude=" + lat.toFixed(4) + "&longitude=" + lon.toFixed(4));
+    return typeof d.elevation[0] === "number" ? d.elevation[0] : null;
+  } catch (e) { return null; }
+}
+
+// ---------- Boverket: klimatlaster enligt BFS 2024:6 ----------
+// x-koord = N, y-koord = E i SWEREF 99 TM. Ger null om värdet inte kan hämtas.
+async function klimatlast(op, sw, retries = 2) {
+  try {
+    const d = await getJson("https://api.boverket.se/klimatlast/v2/" + op + "?x-koord=" + Math.round(sw.N) + "&y-koord=" + Math.round(sw.E));
+    if (!d["värde"]) return null;
+    // Intervall kommer som "34 - 36" resp. "-34 - -36"
+    const value = String(d["värde"]).replace(/\s+-\s+/g, " till ").replace(/-(?=\d)/g, "−").replace(/\./g, ",");
+    return { value, unit: d.enhet === "kN/m2" ? "kN/m²" : d.enhet };
+  } catch (e) {
+    if (retries <= 0) return null;
+    await new Promise(r => setTimeout(r, 600));
+    return klimatlast(op, sw, retries - 1);
+  }
+}
+
+// ---------- Energi: geografisk justeringsfaktor Fgeo (BBR tabell 9:2a) och äldre klimatzon I–IV ----------
+const FGEO_LAN = { "Blekinge": 0.9, "Gotland": 0.9, "Kronoberg": 1.0, "Stockholm": 1.0, "Södermanland": 1.0, "Östergötland": 1.0, "Halland": 0.9 };
+const FGEO_GROUPS = [
+  [0.8, "Höganäs,Landskrona,Lomma,Malmö,Vellinge"],
+  [0.9, "Borgholm,Emmaboda,Kalmar,Mönsterås,Mörbylånga,Nybro,Oskarshamn,Torsås,Västervik,Bjuv,Bromölla,Burlöv,Båstad,Eslöv,Helsingborg,Hässleholm,Hörby,Höör,Klippan,Kristianstad,Kävlinge,Lund,Perstorp,Simrishamn,Sjöbo,Skurup,Staffanstorp,Svalöv,Svedala,Tomelilla,Trelleborg,Ystad,Åstorp,Ängelholm,Östra Göinge,Göteborg,Härryda,Kungälv,Lerum,Lysekil,Mölndal,Orust,Partille,Sotenäs,Stenungsund,Strömstad,Tanum,Tjörn,Uddevalla,Öckerö"],
+  [1.0, "Hylte,Aneby,Gislaved,Gnosjö,Habo,Jönköping,Mullsjö,Tranås,Vaggeryd,Vetlanda,Värnamo,Hultsfred,Högsby,Vimmerby,Osby,Örkelljunga,Enköping,Håbo,Knivsta,Uppsala,Grums,Säffle,Arboga,Hallstahammar,Kungsör,Köping,Surahammar,Västerås,Ale,Alingsås,Bengtsfors,Bollebygd,Borås,Dals-Ed,Essunga,Falköping,Färgelanda,Grästorp,Gullspång,Götene,Herrljunga,Hjo,Karlsborg,Lidköping,Lilla Edet,Mariestad,Mark,Mellerud,Munkedal,Skara,Skövde,Svenljunga,Tibro,Tidaholm,Trollhättan,Töreboda,Vara,Vårgårda,Vänersborg,Åmål,Hallsberg,Kumla,Laxå,Lekeberg,Örebro"],
+  [1.1, "Avesta,Hedemora,Säter,Gävle,Ockelbo,Sandviken,Eksjö,Nässjö,Sävsjö,Heby,Tierp,Älvkarleby,Östhammar,Arvika,Eda,Filipstad,Forshaga,Hammarö,Karlstad,Kil,Kristinehamn,Munkfors,Storfors,Sunne,Årjäng,Fagersta,Norberg,Sala,Skinnskatteberg,Tranemo,Ulricehamn,Askersund,Degerfors,Hällefors,Karlskoga,Lindesberg,Nora"],
+  [1.2, "Borlänge,Falun,Gagnef,Leksand,Ludvika,Mora,Orsa,Rättvik,Smedjebacken,Vansbro,Bollnäs,Hofors,Hudiksvall,Nordanstig,Söderhamn,Hagfors,Torsby,Ljusnarsberg"],
+  [1.3, "Ljusdal,Ovanåker,Nordmaling,Umeå,Härnösand,Kramfors,Sundsvall,Timrå,Örnsköldsvik"],
+  [1.4, "Malung-Sälen,Älvdalen,Berg,Bräcke,Ragunda,Östersund,Piteå,Bjurholm,Robertsfors,Skellefteå,Vännäs,Sollefteå,Ånge"],
+  [1.5, "Härjedalen,Krokom,Strömsund,Boden,Haparanda,Kalix,Luleå,Älvsbyn,Dorotea,Lycksele,Vindeln,Åsele"],
+  [1.6, "Åre,Arvidsjaur,Överkalix,Övertorneå,Malå,Norsjö,Vilhelmina"],
+  [1.7, "Arjeplog,Pajala,Sorsele"],
+  [1.8, "Jokkmokk,Storuman"],
+  [1.9, "Gällivare,Kiruna"],
+];
+const FGEO_KOMMUN = {};
+for (const [f, names] of FGEO_GROUPS) for (const n of names.split(",")) FGEO_KOMMUN[n.toLowerCase()] = f;
+
+const ZONE_BY_LAN = {
+  "Norrbotten": "I", "Västerbotten": "I", "Jämtland": "I",
+  "Västernorrland": "II", "Gävleborg": "II", "Dalarna": "II", "Värmland": "II",
+  "Jönköping": "III", "Kronoberg": "III", "Östergötland": "III", "Södermanland": "III", "Örebro": "III", "Västmanland": "III", "Stockholm": "III", "Uppsala": "III", "Gotland": "III", "Västra Götaland": "III",
+  "Kalmar": "IV", "Blekinge": "IV", "Skåne": "IV", "Halland": "IV",
+};
+const ZONE_IV_KOMMUNER = ["göteborg", "härryda", "mölndal", "partille", "öckerö"];
+
+// "Västra Götalands län" -> "Västra Götaland", "Falu kommun" -> "falun", "Stockholms kommun" -> "stockholm"
+function lanKey(lan) {
+  const s = lan.replace(/\s+län$/i, "").trim();
+  return s in ZONE_BY_LAN ? s : s.replace(/s$/, "");
+}
+function kommunKey(kommun) {
+  const s = kommun.replace(/\s+(kommun|stad)$/i, "").replace(/^region\s+/i, "").replace(/[‐–]/g, "-").trim().toLowerCase();
+  if (s in FGEO_KOMMUN) return s;
+  if (s === "falu") return "falun";
+  return s.replace(/s$/, "");
+}
+function energyZone(place) {
+  const lan = lanKey(place.lan || ""), kommun = kommunKey(place.kommun || "");
+  const fgeo = kommun in FGEO_KOMMUN ? FGEO_KOMMUN[kommun] : (kommun === "hylte" ? 1.0 : FGEO_LAN[lan]);
+  const zone = ZONE_IV_KOMMUNER.includes(kommun) ? "IV" : ZONE_BY_LAN[lan];
+  return { fgeo, zone };
+}
+
+// ---------- Nederbörd relativt Sverige ----------
+// Årsmedelnederbörd 1991–2020 (mm) för de 496 SMHI-stationer som har tillräcklig mätserie, sorterad
+const PRECIP_SWEDEN = [347,396,398,414,430,436,444,448,452,460,467,469,476,480,483,485,490,492,493,493,495,498,503,505,510,512,513,513,514,515,516,516,519,521,522,526,527,531,531,532,534,534,534,535,539,540,540,540,541,541,541,542,542,543,544,545,545,546,546,547,548,549,549,551,552,552,552,553,553,553,553,554,555,555,556,557,557,558,560,560,560,561,561,561,562,562,563,564,564,564,565,565,565,565,566,568,568,569,570,570,570,571,571,571,573,574,574,575,577,577,578,578,578,578,579,579,579,580,580,581,581,581,582,582,582,582,583,584,587,587,588,588,589,590,590,591,591,591,591,592,593,593,593,594,594,594,595,595,596,596,597,597,597,598,599,599,599,599,600,600,601,601,601,603,603,603,604,604,604,605,605,606,606,606,606,606,606,607,607,607,608,608,608,608,609,609,609,610,610,611,611,612,613,613,613,613,613,613,613,614,614,615,615,615,616,616,616,616,616,617,618,619,619,620,620,620,621,622,622,622,622,624,624,625,627,627,628,628,629,630,630,630,630,631,631,631,632,632,633,633,633,633,633,634,634,634,637,637,638,638,639,640,640,641,642,642,642,643,643,644,645,646,646,647,647,648,648,649,649,649,649,649,650,652,652,653,654,655,655,655,658,658,659,659,660,660,661,662,662,662,662,663,663,666,666,666,666,667,668,668,668,668,668,669,669,669,670,671,672,673,673,675,675,675,676,677,677,677,678,678,678,679,679,680,682,682,682,684,684,685,685,686,686,687,687,688,690,690,693,693,694,696,698,698,699,699,702,705,709,711,711,713,714,714,715,717,718,718,718,718,721,721,721,721,723,723,723,723,724,726,726,726,728,728,731,732,734,734,734,735,738,739,739,743,743,747,749,749,751,752,753,753,754,755,756,758,758,760,761,762,762,762,764,765,765,774,775,776,780,780,781,782,783,784,785,785,785,786,788,791,795,796,801,802,803,809,810,811,812,813,815,816,816,817,820,822,822,823,824,827,831,833,837,837,841,853,853,854,855,856,857,858,859,862,868,868,868,870,871,886,893,895,897,900,905,913,922,927,928,945,957,967,974,976,995,995,998,998,998,998,1007,1008,1026,1029,1030,1043,1048,1051,1062,1079,1081,1094,1163,1183,1228,1277];
+const PRECIP_MEDIAN = 638;
+
+function precipRank(mm) {
+  const v = Math.round(mm), n = PRECIP_SWEDEN.length;
+  const below = PRECIP_SWEDEN.filter(x => x < v).length, equal = PRECIP_SWEDEN.filter(x => x === v).length;
+  const pct = Math.round((below + equal / 2) / n * 100);
+  const label = pct < 10 ? "Mycket låg" : pct < 30 ? "Låg" : pct <= 70 ? "Normal" : pct <= 90 ? "Hög" : "Mycket hög";
+  return { pct, label };
+}
+
+// ---------- Presentation ----------
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+const num = (v, d) => (Math.round(v * 10 ** d) / 10 ** d + 0).toLocaleString("sv-SE", { minimumFractionDigits: d, maximumFractionDigits: d });
+let runId = 0;
+
+function setStatus(msg, isErr) { $("status").textContent = msg; $("status").className = "status" + (isErr ? " err" : ""); }
+
+function stationNote(n) {
+  return "<small>Station: " + esc(n.name) + " (" + num(n.km, 0) + " km bort, " + num(n.height, 0) + " m ö.h.), " + (n.years < 30 ? "minst " : "") + n.years + " av 30 år i 1991–2020</small>";
+}
+
+async function show(place) {
+  const id = ++runId;
+  $("result").hidden = true;
+  setStatus("Hämtar klimatdata för " + place.name + " …");
+  const sw = toSweref(place.lat, place.lon), px = toMapPixel(sw);
+  const zone = zoneAtPixel(px.x, px.y), near = nearestBoundary(px.x, px.y);
+  // Boverkets API tappar ibland svar vid parallella anrop, så de fyra värdena hämtas i tur och ordning
+  const loads = (async () => {
+    const r = [];
+    for (const op of ["snolast", "vindlast", "maxtemp", "mintemp"]) r.push(await klimatlast(op, sw));
+    return r;
+  })();
+  const [temp, precip, elev, [snow, wind, tMax, tMin]] = await Promise.all([
+    nearestNormals(PARAM_TEMP, place.lat, place.lon).catch(() => undefined),
+    nearestNormals(PARAM_PRECIP, place.lat, place.lon).catch(() => undefined),
+    elevation(place.lat, place.lon),
+    loads,
+  ]);
+  if (id !== runId) return;
+
+  const missing = v => v === undefined ? "Kunde inte hämtas från SMHI" : "Ingen station med tillräcklig mätserie i närheten";
+  const rows = [];
+  rows.push(["Kommun / län", esc([place.kommun, place.lan].filter(Boolean).join(", ") || "–")]);
+  rows.push(["Koordinater", "<span class='val'>" + num(place.lat, 4) + "° N, " + num(place.lon, 4) + "° Ö</span><small>SWEREF 99 TM: N " + Math.round(sw.N) + ", E " + Math.round(sw.E) + "</small>"]);
+  rows.push(["Höjd över havet", elev === null ? "–" : "<span class='val'>" + num(elev, 0) + " m</span>"]);
+  if (temp) {
+    const annual = temp.means.reduce((s, m, i) => s + m * DAYS[i], 0) / 365.25;
+    const cold = temp.means.indexOf(Math.min(...temp.means)), warm = temp.means.indexOf(Math.max(...temp.means));
+    rows.push(["Årsmedeltemperatur", "<span class='val'>" + num(annual, 1) + " °C</span>" + stationNote(temp)]);
+    rows.push(["Kallaste / varmaste månad", "<span class='val'>" + num(temp.means[cold], 1) + " °C / " + num(temp.means[warm], 1) + " °C</span><small>" + MONTHS[cold] + " / " + MONTHS[warm] + " (månadsmedel)</small>"]);
+  } else rows.push(["Årsmedeltemperatur", missing(temp)]);
+  if (precip) {
+    const mm = precip.means.reduce((s, m) => s + m, 0), rank = precipRank(mm);
+    rows.push(["Årsmedelnederbörd", "<span class='val'>" + num(mm, 0) + " mm</span>" + stationNote(precip)]);
+    rows.push(["Nederbörd relativt Sverige", "<span class='val'>" + rank.label + "</span>" +
+      "<span class='scale' role='img' aria-label='Percentil " + rank.pct + "'><span class='mark' style='left:" + rank.pct + "%'></span></span>" +
+      "<small>Mer än vid " + rank.pct + " % av " + PRECIP_SWEDEN.length + " SMHI-stationer (median " + PRECIP_MEDIAN + " mm, spann " +
+      PRECIP_SWEDEN[0] + "–" + num(PRECIP_SWEDEN[PRECIP_SWEDEN.length - 1], 0) + " mm)</small>"]);
+  } else rows.push(["Årsmedelnederbörd", missing(precip)]);
+  const sev = RAIN_SEVERITY[zone];
+  let zoneHtml = "<span class='val'>" + zone + " – " + sev.label + "</span>";
+  if (sev.pos !== null) zoneHtml += "<span class='scale' role='img' aria-label='" + sev.label + " slagregnsmängd'><span class='mark' style='left:" + sev.pos + "%'></span></span>";
+  zoneHtml += "<small>" + sev.note + "</small>";
+  if (near.km < NEAR_KM) {
+    zoneHtml += "<span class='warn'>Ligger ca " + num(near.km, 0) + " km från en zongräns" +
+      (near.otherZone && near.otherZone !== zone ? " (mot zon " + near.otherZone + ")" : "") + ". Kontrollera mot kartan.</span>";
+  }
+  rows.push(["Slagregnszon", zoneHtml]);
+  const en = energyZone(place);
+  rows.push(["Klimatzon energi", en.fgeo === undefined && !en.zone ? "Kommunen kunde inte matchas mot tabellen" :
+    "<span class='val'>" + (en.fgeo === undefined ? "F<sub>geo</sub> saknas" : "F<sub>geo</sub> " + num(en.fgeo, 1)) + "</span>" +
+    "<small>Geografisk justeringsfaktor per kommun (BBR tabell 9:2a)" + (en.zone ? ". Äldre indelning: klimatzon " + en.zone : "") + "</small>"]);
+  const load = (v, note) => v ? "<span class='val'>" + esc(v.value) + " " + esc(v.unit) + "</span><small>" + note + "</small>" : "Kunde inte hämtas från Boverket";
+  rows.push(["Snölast på mark, s<sub>k</sub>", load(snow, "BFS 2024:6, figur 4:2")]);
+  rows.push(["Referensvindhastighet, v<sub>b</sub>", load(wind, "BFS 2024:6, figur 4:3")]);
+  rows.push(["Max / min lufttemperatur", tMax && tMin
+    ? "<span class='val'>" + esc(tMax.value) + " " + esc(tMax.unit) + " / " + esc(tMin.value) + " " + esc(tMin.unit) + "</span><small>50 års återkomsttid, BFS 2024:6, figur 4:4 och 4:5</small>"
+    : "Kunde inte hämtas från Boverket"]);
+
+  $("table").innerHTML = "<caption>" + esc(place.name) + "</caption>" + rows.map(r => "<tr><th scope='row'>" + r[0] + "</th><td>" + r[1] + "</td></tr>").join("");
+  $("dot").style.left = (px.x / MAP_W * 100) + "%";
+  $("dot").style.top = (px.y / MAP_H * 100) + "%";
+  $("result").hidden = false;
+  setStatus("");
+}
+
+async function search(q) {
+  $("alts").innerHTML = "";
+  $("result").hidden = true;
+  $("go").disabled = true;
+  setStatus("Söker efter " + q + " …");
+  try {
+    const hits = await geocode(q);
+    if (!hits.length) { setStatus("Hittade ingen ort i Sverige som heter \"" + q + "\".", true); return; }
+    if (hits.length > 1) {
+      $("alts").innerHTML = "Flera träffar: " + hits.map((h, i) => "<button type='button' data-i='" + i + "'>" + esc(h.name + (h.kommun ? ", " + h.kommun : "") + (h.lan ? ", " + h.lan : "")) + "</button>").join("");
+      $("alts").onclick = e => { const i = e.target.dataset.i; if (i !== undefined) show(hits[i]).catch(fail); };
+    }
+    await show(hits[0]);
+  } catch (e) { fail(e); } finally { $("go").disabled = false; }
+}
+
+function fail(e) { setStatus("Något gick fel: " + e.message, true); }
+
+$("form").addEventListener("submit", e => {
+  e.preventDefault();
+  const q = $("ort").value.trim();
+  if (q) search(q);
+});
+</script>
+</body>
+</html>
