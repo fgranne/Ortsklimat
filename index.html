@@ -226,16 +226,25 @@ async function nearestNormals(param, lat, lon) {
 
 // ---------- Ortssökning och höjd ----------
 async function geocode(q) {
-  const url = "https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=se&limit=6&addressdetails=1&accept-language=sv&q=" + encodeURIComponent(q);
-  const hits = await getJson(url);
-  return hits.map(h => {
+  const url = "https://nominatim.openstreetmap.org/search?format=jsonv2&countrycodes=se&limit=10&addressdetails=1&accept-language=sv&q=" + encodeURIComponent(q);
+  const hits = (await getJson(url)).map(h => {
     const a = h.address || {};
     return {
       lat: +h.lat, lon: +h.lon,
       name: h.name || a.city || a.town || a.village || a.hamlet || q,
       kommun: a.municipality || "", lan: a.county || "",
+      isPlace: h.category === "place",
     };
-  }).filter((h, i, arr) => arr.findIndex(o => distKm(h.lat, h.lon, o.lat, o.lon) < 5) === i);
+  });
+  // Träffar inom 5 km räknas som samma ort. Finns både kommunytan och själva tätorten bland dem används tätortens punkt,
+  // annars hamnar sökningen på kommunens mittpunkt i stället för i orten.
+  const places = [];
+  for (const h of hits) {
+    const i = places.findIndex(o => distKm(h.lat, h.lon, o.lat, o.lon) < 5);
+    if (i < 0) places.push(h);
+    else if (h.isPlace && !places[i].isPlace) places[i] = { ...h, kommun: h.kommun || places[i].kommun, lan: h.lan || places[i].lan };
+  }
+  return places;
 }
 
 async function elevation(lat, lon) {
@@ -319,6 +328,15 @@ function precipRank(mm) {
   return { pct, label };
 }
 
+// ---------- Snölast relativt snözonerna ----------
+// Snözonerna i BFS 2024:6 är 1,0–5,5 kN/m². Markören placeras linjärt däremellan; nivåerna gäller från och med angivet värde.
+const SNOW_MIN = 1.0, SNOW_MAX = 5.5;
+const SNOW_LEVELS = [[4.5, "Mycket hög"], [3.5, "Hög"], [2.5, "Förhöjd"], [1.5, "Måttlig"], [0, "Låg"]];
+function snowLevel(sk) {
+  const pos = Math.max(4, Math.min(96, (sk - SNOW_MIN) / (SNOW_MAX - SNOW_MIN) * 100));
+  return { label: SNOW_LEVELS.find(l => sk >= l[0])[1], pos };
+}
+
 // ---------- Presentation ----------
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
@@ -384,7 +402,15 @@ async function show(place) {
     "<span class='val'>" + (en.fgeo === undefined ? "F<sub>geo</sub> saknas" : "F<sub>geo</sub> " + num(en.fgeo, 1)) + "</span>" +
     "<small>Geografisk justeringsfaktor per kommun (BBR tabell 9:2a)" + (en.zone ? ". Äldre indelning: klimatzon " + en.zone : "") + "</small>"]);
   const load = (v, note) => v ? "<span class='val'>" + esc(v.value) + " " + esc(v.unit) + "</span><small>" + note + "</small>" : "Kunde inte hämtas från Boverket";
-  rows.push(["Snölast på mark, s<sub>k</sub>", load(snow, "BFS 2024:6, figur 4:2")]);
+  let snowHtml = load(snow, "BFS 2024:6, figur 4:2");
+  const sk = snow ? parseFloat(snow.value.replace(",", ".")) : NaN;
+  if (!isNaN(sk)) {
+    const lvl = snowLevel(sk);
+    snowHtml = "<span class='val'>" + esc(snow.value) + " " + esc(snow.unit) + " – " + lvl.label + "</span>" +
+      "<span class='scale' role='img' aria-label='" + lvl.label + " snölast'><span class='mark' style='left:" + lvl.pos + "%'></span></span>" +
+      "<small>Snözonerna i Sverige går från " + num(SNOW_MIN, 1) + " till " + num(SNOW_MAX, 1) + " kN/m² (BFS 2024:6, figur 4:2)</small>";
+  }
+  rows.push(["Snölast på mark, s<sub>k</sub>", snowHtml]);
   rows.push(["Referensvindhastighet, v<sub>b</sub>", load(wind, "BFS 2024:6, figur 4:3")]);
   rows.push(["Max / min lufttemperatur", tMax && tMin
     ? "<span class='val'>" + esc(tMax.value) + " " + esc(tMax.unit) + " / " + esc(tMin.value) + " " + esc(tMin.unit) + "</span><small>50 års återkomsttid, BFS 2024:6, figur 4:4 och 4:5</small>"
