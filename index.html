@@ -67,6 +67,7 @@
   <footer>
     Temperatur och nederbörd: medelvärden 1991–2020 beräknade från månadsvärden vid närmaste SMHI-station med tillräcklig mätserie (SMHI öppna data).
     Nederbörd relativt Sverige: ortens värde jämfört med 1991–2020-medelvärdet vid alla SMHI-stationer med tillräcklig mätserie; stationerna ligger tätare i söder och glesare i fjällen, så jämförelsen är inte ytviktad.
+    Klimatzon enligt Köppen: beräknad med Köppen–Geigers kriterier (Peel m.fl. 2007) från stationernas månadsvärden, med 0 °C som gräns mellan C- och D-klimat.
     Klimatzon energi: geografisk justeringsfaktor F<sub>geo</sub> per kommun enligt Boverkets byggregler, samt den äldre indelningen i klimatzon I–IV.
     Snölast, vindhastighet och max/min lufttemperatur: Boverkets öppna API för klimatlaster (BFS 2024:6) – vägledande värden med skarpa zongränser, den tryckta författningen gäller.
     Ortssökning: © OpenStreetMap-bidragsgivare (Nominatim). Höjd: Open-Meteo.
@@ -328,6 +329,36 @@ function precipRank(mm) {
   return { pct, label };
 }
 
+// ---------- Klimatzon enligt Köppen–Geiger ----------
+// Kriterier enligt Peel m.fl. (2007) / Beck m.fl. (2018), med 0 °C som gräns mellan C och D.
+// t = månadsmedeltemperaturer (°C), p = månadsnederbörd (mm), januari–december, norra halvklotet.
+const KOPPEN_CD_LIMIT = 0;
+function koppen(t, p) {
+  const sum = a => a.reduce((s, v) => s + v, 0);
+  const tHot = Math.max(...t), tCold = Math.min(...t);
+  const mat = t.reduce((s, v, i) => s + v * DAYS[i], 0) / 365.25, map = sum(p);
+  const summer = [3, 4, 5, 6, 7, 8], winter = [0, 1, 2, 9, 10, 11];
+  const ps = summer.map(i => p[i]), pw = winter.map(i => p[i]);
+  if (tHot < 10) return tHot > 0 ? "ET" : "EF";
+  const pth = sum(pw) >= 0.7 * map ? 2 * mat : sum(ps) >= 0.7 * map ? 2 * mat + 28 : 2 * mat + 14;
+  if (map < 10 * pth) return (map < 5 * pth ? "BW" : "BS") + (mat >= 18 ? "h" : "k");
+  if (tCold >= 18) return "A";
+  const main = tCold > KOPPEN_CD_LIMIT ? "C" : "D";
+  const dry = Math.min(...ps) < 40 && Math.min(...ps) < Math.max(...pw) / 3 ? "s" : Math.min(...pw) < Math.max(...ps) / 10 ? "w" : "f";
+  const heat = tHot >= 22 ? "a" : t.filter(v => v > 10).length >= 4 ? "b" : tCold < -38 ? "d" : "c";
+  return main + dry + heat;
+}
+const KOPPEN_TEXT = {
+  A: "tropiskt", B: "torrt", C: "varmtempererat", D: "kalltempererat (kontinentalt)", E: "polärt",
+  W: "öken", S: "stäpp", T: "tundra", F: "ständig frost",
+  f: "nederbörd året om", s: "torr sommar", w: "torr vinter",
+  a: "het sommar", b: "varm sommar", c: "sval sommar", d: "mycket kall vinter", h: "hett", k: "kallt",
+};
+function koppenText(code) {
+  const parts = [...code].map(ch => KOPPEN_TEXT[ch]).filter(Boolean);
+  return parts[0].charAt(0).toUpperCase() + parts[0].slice(1) + (parts.length > 1 ? ", " + parts.slice(1).join(", ") : "");
+}
+
 // ---------- Snölast relativt snözonerna ----------
 // Snözonerna i BFS 2024:6 är 1,0–5,5 kN/m². Markören placeras linjärt däremellan; nivåerna gäller från och med angivet värde.
 const SNOW_MIN = 1.0, SNOW_MAX = 5.5;
@@ -402,6 +433,11 @@ async function show(place) {
     "<span class='val'>" + (en.fgeo === undefined ? "F<sub>geo</sub> saknas" : "F<sub>geo</sub> " + num(en.fgeo, 1)) + "</span>" +
     "<small>Geografisk justeringsfaktor per kommun (BBR tabell 9:2a)" + (en.zone ? ". Äldre indelning: klimatzon " + en.zone : "") + "</small>"]);
   const load = (v, note) => v ? "<span class='val'>" + esc(v.value) + " " + esc(v.unit) + "</span><small>" + note + "</small>" : "Kunde inte hämtas från Boverket";
+  if (temp && precip) {
+    const code = koppen(temp.means, precip.means);
+    rows.push(["Klimatzon enligt Köppen", "<span class='val'>" + code + "</span><small>" + koppenText(code) +
+      ". Beräknad från månadsvärdena 1991–2020 vid stationerna ovan</small>"]);
+  } else rows.push(["Klimatzon enligt Köppen", "Kräver både temperatur- och nederbördsdata"]);
   let snowHtml = load(snow, "BFS 2024:6, figur 4:2");
   const sk = snow ? parseFloat(snow.value.replace(",", ".")) : NaN;
   if (!isNaN(sk)) {
