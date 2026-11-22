@@ -98,6 +98,7 @@
     <details class="changelog">
       <summary>Version <span id="version"></span> · Ändringslogg</summary>
       <dl>
+        <dt>1.9 – 2026-11-22</dt><dd>Tar emot plats via länk (?lat=…&amp;lon=…&amp;ort=…), till exempel från Fuktår.</dd>
         <dt>1.8 – 2026-11-22</dt><dd>Ruta som visar hur man refererar till verktyget. Resultatrutan och Fuktår-knappen visas först när en ort har sökts fram.</dd>
         <dt>1.7 – 2026-11-20</dt><dd>Knapp som öppnar Fuktår (klimatfiler) med ortens koordinater förifyllda.</dd>
         <dt>1.6 – 2026-11-20</dt><dd>Relativ luftfuktighet och solinstrålning. Versionsnummer och ändringslogg.</dd>
@@ -115,7 +116,7 @@
 "use strict";
 
 // Uppdatera vid varje ändring, tillsammans med ändringsloggen längst ned på sidan
-const APP_VERSION = "1.8";
+const APP_VERSION = "1.9";
 const APP_URL = "https://fgranne.github.io/Ortsklimat/";
 const APP_AUTHOR = "";   // Fyll i upphovsperson, t.ex. "Efternamn, F.", så kommer den först i referensen
 // Fuktår (projektet Klimatfiler) tar emot ?lat=…&lon=…&ort=…
@@ -620,6 +621,33 @@ $("form").addEventListener("submit", e => {
   const q = $("ort").value.trim();
   if (q) search(q);
 });
+
+// Förifylld plats via länk, t.ex. ?lat=57.7211&lon=12.9407&ort=Borås (används av Fuktår).
+// Med koordinater används exakt den punkten; kommun och län hämtas med omvänd ortssökning.
+async function fromCoords(lat, lon, name) {
+  $("go").disabled = true;
+  setStatus("Hämtar ort för " + num(lat, 4) + "° N, " + num(lon, 4) + "° Ö …");
+  try {
+    let a = {};
+    try {
+      const r = await getJson("https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=14&addressdetails=1&accept-language=sv&lat=" + lat + "&lon=" + lon);
+      a = r.address || {};
+    } catch (e) { /* utan kommun blir bara Fgeo omatchad, resten fungerar */ }
+    const place = {
+      lat, lon, isPlace: true,
+      name: name || a.city || a.town || a.village || a.hamlet || a.suburb || (num(lat, 4) + "° N, " + num(lon, 4) + "° Ö"),
+      kommun: a.municipality || "", lan: a.county || "",
+    };
+    $("ort").value = place.name;
+    await show(place);
+  } catch (e) { fail(e); } finally { $("go").disabled = false; }
+}
+{
+  const p = new URLSearchParams(location.search);
+  const lat = parseFloat(p.get("lat")), lon = parseFloat(p.get("lon")), ort = (p.get("ort") || "").trim();
+  if (lat >= 54 && lat <= 70 && lon >= 10 && lon <= 25) fromCoords(lat, lon, ort);
+  else if (ort) { $("ort").value = ort; search(ort); }
+}
 </script>
 </body>
 </html>
