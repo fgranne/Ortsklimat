@@ -31,6 +31,7 @@
   .result { display: grid; grid-template-columns: 1fr 190px; gap: 16px; align-items: start; }
   @media (max-width: 640px) { .result { grid-template-columns: 1fr; } .map { max-width: 190px; } }
   .result > * { min-width: 0; }
+  .result[hidden] { display: none; }
   td { overflow-wrap: anywhere; }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
   table { width: 100%; border-collapse: collapse; }
@@ -56,6 +57,12 @@
   .changelog dl { margin: 8px 0 0; }
   .changelog dt { font-weight: 600; margin-top: 6px; }
   .changelog dd { margin: 0 0 0 0; }
+  .citebox { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--text); }
+  .citebox p { margin: 6px 0 8px; color: var(--muted); }
+  .citebox pre { margin: 0 0 8px; padding: 10px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); font: .8rem/1.5 ui-monospace, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .copybtn { padding: 6px 12px; border-radius: 8px; border: 1px solid var(--accent); background: transparent; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+  .copybtn:hover { background: var(--accent); color: var(--accent-text); }
+  #cite-note { color: var(--muted); }
 </style>
 </head>
 <body>
@@ -82,9 +89,16 @@
     Relativ luftfuktighet: ERA5-modelldata 1991–2020 via Open-Meteo (dygnsmedel sammanställda per månad). Solinstrålning: SMHI STRÅNG, global instrålning, medel av hela år 2001–2025.
     Ortssökning: © OpenStreetMap-bidragsgivare (Nominatim). Höjd: Open-Meteo.
     Slagregnszon: uppslag i en digitaliserad, förenklad zonkarta – noggrannheten är omkring 10–20 km, kontrollera mot kartan nära zongränser.
+    <div class="citebox">
+      <strong>Hur ska jag referera till verktyget?</strong>
+      <p>Ange versionen och datumet då du hämtade värdena, eftersom de underliggande datakällorna uppdateras. Ange också de källor du använder värden från.</p>
+      <pre id="cite"></pre>
+      <button type="button" id="cite-copy" class="copybtn">Kopiera referensen</button> <span id="cite-note"></span>
+    </div>
     <details class="changelog">
       <summary>Version <span id="version"></span> · Ändringslogg</summary>
       <dl>
+        <dt>1.8 – 2026-11-22</dt><dd>Ruta som visar hur man refererar till verktyget. Resultatrutan och Fuktår-knappen visas först när en ort har sökts fram.</dd>
         <dt>1.7 – 2026-11-20</dt><dd>Knapp som öppnar Fuktår (klimatfiler) med ortens koordinater förifyllda.</dd>
         <dt>1.6 – 2026-11-20</dt><dd>Relativ luftfuktighet och solinstrålning. Versionsnummer och ändringslogg.</dd>
         <dt>1.5 – 2026-11-20</dt><dd>DVUT och DSUT för närmaste av 310 tabellorter. Notering och varning när mätstationen ligger på annan höjd än orten. Sökning som bara träffar kommunen söker orten igen inom kommunen.</dd>
@@ -101,10 +115,24 @@
 "use strict";
 
 // Uppdatera vid varje ändring, tillsammans med ändringsloggen längst ned på sidan
-const APP_VERSION = "1.7";
+const APP_VERSION = "1.8";
+const APP_URL = "https://fgranne.github.io/Ortsklimat/";
+const APP_AUTHOR = "";   // Fyll i upphovsperson, t.ex. "Efternamn, F.", så kommer den först i referensen
 // Fuktår (projektet Klimatfiler) tar emot ?lat=…&lon=…&ort=…
 const FUKTAR_URL = "https://fgranne.github.io/Klimatfiler/";
 document.getElementById("version").textContent = APP_VERSION;
+{
+  const today = new Date().toISOString().slice(0, 10);
+  document.getElementById("cite").textContent = (APP_AUTHOR ? APP_AUTHOR + " (" + today.slice(0, 4) + "). " : "") +
+    "Ortsklimat: klimatuppgifter för svenska orter (version " + APP_VERSION + ") [Webbverktyg]. " + APP_URL +
+    ". Hämtad " + today + ". Underlagsdata: SMHI öppna data och STRÅNG, Boverket (klimatlaster, DVUT, Fgeo), " +
+    "SMHI rapport 2025-47 (DSUT, CC BY 4.0), ERA5 via Open-Meteo, © OpenStreetMap-bidragsgivare.";
+  document.getElementById("cite-copy").addEventListener("click", async () => {
+    const note = document.getElementById("cite-note");
+    try { await navigator.clipboard.writeText(document.getElementById("cite").textContent); note.textContent = "Kopierad."; }
+    catch (e) { note.textContent = "Kunde inte kopiera – markera texten och kopiera själv."; }
+  });
+}
 
 // ---------- Slagregnszoner (digitaliserad karta, pixelkoordinater i kartbilden 300 x 642) ----------
 const MAP_W = 300, MAP_H = 642;
