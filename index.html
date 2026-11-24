@@ -39,6 +39,8 @@
   caption { text-align: left; padding: 14px 16px 10px; font-weight: 600; font-size: 1.1rem; }
   th, td { text-align: left; vertical-align: top; padding: 10px 16px; border-top: 1px solid var(--line); }
   th { font-weight: 400; color: var(--muted); width: 42%; }
+  tr.grp th { width: auto; padding: 16px 16px 6px; color: var(--accent); font-weight: 700; font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; background: var(--bg); border-top: 1px solid var(--line); }
+  @media print { tr.grp th { background: none; padding-top: 10px; break-after: avoid; } }
   td .val { font-weight: 600; font-variant-numeric: tabular-nums; }
   td small { display: block; color: var(--muted); font-size: .82rem; }
   .warn { display: block; margin-top: 6px; padding: 6px 8px; border-radius: 6px; background: var(--warn-bg); color: var(--warn-text); font-size: .85rem; }
@@ -127,6 +129,7 @@
     <details class="changelog">
       <summary>Version <span id="version"></span> · Ändringslogg</summary>
       <dl>
+        <dt>1.14 – 2026-11-24</dt><dd>Resultaten grupperade i avsnitt (plats, temperatur och energi, dimensionerande temperaturer, nederbörd och fukt, kyla/tjäle/mark, laster). CSV-exporten har en kolumn för avsnitt.</dd>
         <dt>1.13 – 2026-11-24</dt><dd>Graddagar för uppvärmning, köldmängd, uppskattat tjäldjup och frys-tö-cykler (ERA5 via Open-Meteo).</dd>
         <dt>1.12 – 2026-11-23</dt><dd>Marktemperatur (ERA5 via Open-Meteo): årsmedel på 1–2,5 m djup samt kallaste och varmaste månad för tre djup.</dd>
         <dt>1.11 – 2026-11-23</dt><dd>Export: Spara som PDF (utskriftsanpassad sida med källor och referens) och Ladda ner CSV.</dd>
@@ -150,7 +153,7 @@
 "use strict";
 
 // Uppdatera vid varje ändring, tillsammans med ändringsloggen längst ned på sidan
-const APP_VERSION = "1.13";
+const APP_VERSION = "1.14";
 const APP_URL = "https://fgranne.github.io/Ortsklimat/";
 const APP_AUTHOR = "";   // Fyll i upphovsperson, t.ex. "Efternamn, F.", så kommer den först i referensen
 // Kritiska klimatår, tidigare Fuktår (projektet Klimatfiler), tar emot ?lat=…&lon=…&ort=…
@@ -601,6 +604,29 @@ function stationNote(n, elev, kind) {
   return html + "</small><span class='warn'>Stationen ligger " + rel + ". " + effect + "</span>";
 }
 
+// Resultattabellens avsnitt. Raderna sorteras in efter hur deras rubrik börjar; okända rader hamnar sist under Övrigt.
+const ROW_GROUPS = [
+  ["Plats och klimattyp", ["Kommun", "Koordinater", "Höjd över havet", "Klimatzon enligt Köppen"]],
+  ["Temperatur och energi", ["Årsmedeltemperatur", "Kallaste / varmaste", "Graddagar, uppvärmning", "Klimatzon energi", "Solinstrålning"]],
+  ["Dimensionerande temperaturer", ["DVUT", "DSUT", "Max / min lufttemperatur"]],
+  ["Nederbörd och fukt", ["Årsmedelnederbörd", "Nederbörd relativt", "Relativ luftfuktighet", "Slagregnszon"]],
+  ["Kyla, tjäle och mark", ["Köldmängd", "Tjäldjup", "Frys-tö", "Graddagar, köldmängd", "Marktemperatur"]],
+  ["Laster på konstruktioner", ["Snölast", "Referensvindhastighet"]],
+];
+function groupRows(rows) {
+  const used = new Set(), sections = [];
+  const row = r => "<tr><th scope='row'>" + r[0] + "</th><td>" + r[1] + "</td></tr>";
+  const head = t => "<tr class='grp'><th colspan='2' scope='colgroup'>" + t + "</th></tr>";
+  for (const [title, keys] of ROW_GROUPS) {
+    const hit = [];
+    for (const k of keys) for (const r of rows) if (!used.has(r) && r[0].startsWith(k)) { hit.push(r); used.add(r); }
+    if (hit.length) sections.push(head(title) + hit.map(row).join(""));
+  }
+  const rest = rows.filter(r => !used.has(r));
+  if (rest.length) sections.push(head("Övrigt") + rest.map(row).join(""));
+  return sections.join("");
+}
+
 async function show(place, refresh = false) {
   const id = ++runId;
   if (!refresh) {   // vid automatisk omhämtning ligger förra resultatet kvar tills det nya är klart
@@ -709,7 +735,7 @@ async function show(place, refresh = false) {
   if (temp && precip) {
     const code = koppen(temp.means, precip.means);
     rows.push(["Klimatzon enligt Köppen", "<span class='val'>" + code + "</span><small>" + koppenText(code) +
-      ". Beräknad från månadsvärdena 1991–2020 vid stationerna ovan</small>"]);
+      ". Beräknad från månadsvärdena 1991–2020 vid stationerna för temperatur och nederbörd nedan</small>"]);
   } else rows.push(["Klimatzon enligt Köppen", "Kräver både temperatur- och nederbördsdata"]);
   let snowHtml = load(snow, "BFS 2024:6, figur 4:2");
   const sk = snow ? parseFloat(snow.value.replace(",", ".")) : NaN;
@@ -725,7 +751,7 @@ async function show(place, refresh = false) {
     ? "<span class='val'>" + esc(tMax.value) + " " + esc(tMax.unit) + " / " + esc(tMin.value) + " " + esc(tMin.unit) + "</span><small>50 års återkomsttid, BFS 2024:6, figur 4:4 och 4:5</small>"
     : "Kunde inte hämtas från Boverket"]);
 
-  $("table").innerHTML = "<caption>" + esc(place.name) + "</caption>" + rows.map(r => "<tr><th scope='row'>" + r[0] + "</th><td>" + r[1] + "</td></tr>").join("");
+  $("table").innerHTML = "<caption>" + esc(place.name) + "</caption>" + groupRows(rows);
   $("fuktlink").href = FUKTAR_URL + "?lat=" + place.lat.toFixed(4) + "&lon=" + place.lon.toFixed(4) + "&ort=" + encodeURIComponent(place.name);
   current = place;
   $("dot").style.left = (px.x / MAP_W * 100) + "%";
@@ -766,12 +792,14 @@ $("csv").addEventListener("click", () => {
     ["Version " + APP_VERSION, "Hämtat " + new Date().toISOString().slice(0, 10)].map(q).join(";"),
     ["Länk", placeLink(current)].map(q).join(";"),
     "",
-    ["Parameter", "Värde", "Kommentar"].map(q).join(";"),
+    ["Avsnitt", "Parameter", "Värde", "Kommentar"].map(q).join(";"),
   ];
+  let section = "";
   for (const tr of $("table").querySelectorAll("tr")) {
+    if (tr.classList.contains("grp")) { section = tr.textContent.trim(); continue; }
     const td = tr.querySelector("td"); if (!td) continue;
     const parts = td.innerText.split("\n").map(s => s.trim()).filter(Boolean);
-    lines.push([tr.querySelector("th").innerText, parts[0] || "", parts.slice(1).join(" – ")].map(q).join(";"));
+    lines.push([section, tr.querySelector("th").innerText, parts[0] || "", parts.slice(1).join(" – ")].map(q).join(";"));
   }
   lines.push("", [q("Referens"), q($("cite").textContent)].join(";"));
   const blob = new Blob(["﻿" + lines.join("\r\n") + "\r\n"], { type: "text/csv;charset=utf-8" });
