@@ -40,6 +40,15 @@
   th, td { text-align: left; vertical-align: top; padding: 10px 16px; border-top: 1px solid var(--line); }
   th { font-weight: 400; color: var(--muted); width: 42%; }
   tr.grp th { width: auto; padding: 16px 16px 6px; color: var(--accent); font-weight: 700; font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; background: var(--bg); border-top: 1px solid var(--line); }
+  .windrose { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin: 2px 0 6px; }
+  .windrose svg { width: 190px; max-width: 100%; height: auto; flex: none; }
+  .wr-grid { fill: none; stroke: var(--line); }
+  .wr-lbl { font-size: 8px; fill: var(--muted); }
+  .wr-dir { font-size: 10px; font-weight: 700; fill: var(--text); }
+  .wr-bar { fill: var(--accent); stroke: var(--card); stroke-width: .5; }
+  .wr-legend { display: grid; gap: 3px; font-size: .8rem; color: var(--muted); }
+  .wr-key i { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -2px; background: var(--accent); border-radius: 2px; }
+  @media print { .wr-legend .wr-key i { print-color-adjust: exact; -webkit-print-color-adjust: exact; } .windrose { break-inside: avoid; } }
   @media print { tr.grp th { background: none; padding-top: 10px; break-after: avoid; } }
   td .val { font-weight: 600; font-variant-numeric: tabular-nums; }
   td small { display: block; color: var(--muted); font-size: .82rem; }
@@ -117,7 +126,7 @@
     Klimatzon energi: geografisk justeringsfaktor F<sub>geo</sub> per kommun enligt Boverkets byggregler, samt den äldre indelningen i klimatzon I–IV.
     Snölast, vindhastighet och max/min lufttemperatur: Boverkets öppna API för klimatlaster (BFS 2024:6) – vägledande värden med skarpa zongränser, den tryckta författningen gäller.
     Relativ luftfuktighet och marktemperatur: ERA5-modelldata 1991–2020 via Open-Meteo (dygnsmedel sammanställda per månad). Marktemperaturen är beräknad i modellen, inte uppmätt.
-    Graddagar, köldmängd, tjäldjup och frys-tö-cykler: beräknade ur ERA5-dygnsvärden (medel, högsta och lägsta temperatur) 1991–2020 via Open-Meteo. Tjäldjupet är en grov uppskattning och inte avsett för dimensionering. Solinstrålning: SMHI STRÅNG, global instrålning, medel av hela år 2001–2025.
+    Graddagar, köldmängd, tjäldjup och frys-tö-cykler: beräknade ur ERA5-dygnsvärden (medel, högsta och lägsta temperatur) 1991–2020 via Open-Meteo. Tjäldjupet är en grov uppskattning och inte avsett för dimensionering. Rötklimatindex (Schefferindex), värmeböljor (SMHI:s definition) och vindros: beräknade ur ERA5-dygnsvärden för temperatur, nederbörd och vind 1991–2020 via Open-Meteo. Solinstrålning: SMHI STRÅNG, global instrålning, medel av hela år 2001–2025.
     Ortssökning och bakgrundskarta: © OpenStreetMap-bidragsgivare (Nominatim, kartvisning med Leaflet). Höjd: Open-Meteo.
     Slagregnszon: uppslag i en digitaliserad, förenklad zonkarta – noggrannheten är omkring 10–20 km, kontrollera mot kartan nära zongränser.
     <div class="citebox">
@@ -129,6 +138,7 @@
     <details class="changelog">
       <summary>Version <span id="version"></span> · Ändringslogg</summary>
       <dl>
+        <dt>1.15 – 2026-11-24</dt><dd>Rötklimatindex för trä (Schefferindex), värmeböljor och varma dygn samt vindros med medelvind och slagregnsriktning (ERA5 via Open-Meteo). Nya avsnitt: Sommarvärme samt Vind och snö.</dd>
         <dt>1.14 – 2026-11-24</dt><dd>Resultaten grupperade i avsnitt (plats, temperatur och energi, dimensionerande temperaturer, nederbörd och fukt, kyla/tjäle/mark, laster). CSV-exporten har en kolumn för avsnitt.</dd>
         <dt>1.13 – 2026-11-24</dt><dd>Graddagar för uppvärmning, köldmängd, uppskattat tjäldjup och frys-tö-cykler (ERA5 via Open-Meteo).</dd>
         <dt>1.12 – 2026-11-23</dt><dd>Marktemperatur (ERA5 via Open-Meteo): årsmedel på 1–2,5 m djup samt kallaste och varmaste månad för tre djup.</dd>
@@ -153,7 +163,7 @@
 "use strict";
 
 // Uppdatera vid varje ändring, tillsammans med ändringsloggen längst ned på sidan
-const APP_VERSION = "1.14";
+const APP_VERSION = "1.15";
 const APP_URL = "https://fgranne.github.io/Ortsklimat/";
 const APP_AUTHOR = "";   // Fyll i upphovsperson, t.ex. "Efternamn, F.", så kommer den först i referensen
 // Kritiska klimatår, tidigare Fuktår (projektet Klimatfiler), tar emot ?lat=…&lon=…&ort=…
@@ -367,7 +377,8 @@ function monthlyMeans(time, values) {
 // Open-Meteo väger anrop efter datamängd, och 30 år med flera variabler väger tungt. Efter ett par
 // sökningar i snabb följd svarar tjänsten därför 429 i ungefär en minut. Resultaten sparas per punkt
 // (avrundad till 0,02°, ungefär 2 km, vilket är finare än modellens rutnät) så att samma plats inte hämtas igen.
-const ERA5_CACHE_VER = "era5-v1:";
+const ERA5_CACHE_VER = "era5-v2:";
+const ERA5_NONE = { rh: null, soil: null, cold: null, rot: null, heat: null, wind: null };
 const era5Mem = new Map();
 const era5Key = (lat, lon) => ERA5_CACHE_VER + (Math.round(lat * 50) / 50).toFixed(2) + "," + (Math.round(lon * 50) / 50).toFixed(2);
 async function era5(lat, lon) {
@@ -379,22 +390,23 @@ async function era5(lat, lon) {
   try {
     r = await fetch("https://archive-api.open-meteo.com/v1/archive?latitude=" + qLat.toFixed(2) + "&longitude=" + qLon.toFixed(2) +
       "&start_date=1991-01-01&end_date=2020-12-31&daily=relative_humidity_2m_mean,temperature_2m_mean,temperature_2m_max,temperature_2m_min," +
-      SOIL_LAYERS.map(l => l[0]).join(",") + "&timezone=Europe%2FStockholm");
-  } catch (e) { return { rh: null, soil: null, cold: null }; }
-  if (r.status === 429) return { rh: null, soil: null, cold: null, limited: true };
-  if (!r.ok) return { rh: null, soil: null, cold: null };
+      "precipitation_sum,wind_speed_10m_mean,wind_direction_10m_dominant," +
+      SOIL_LAYERS.map(l => l[0]).join(",") + "&wind_speed_unit=ms&timezone=Europe%2FStockholm");
+  } catch (e) { return ERA5_NONE; }
+  if (r.status === 429) return { ...ERA5_NONE, limited: true };
+  if (!r.ok) return ERA5_NONE;
   try {
     const d = await r.json();
     const soil = SOIL_LAYERS.map(([k, label]) => { const m = monthlyMeans(d.daily.time, d.daily[k]); return m && { ...m, label }; });
-    let cold = null;
-    try { cold = coldStats(d.daily); } catch (e) { /* visas som saknat */ }
-    const v = { rh: monthlyMeans(d.daily.time, d.daily.relative_humidity_2m_mean), soil: soil.every(Boolean) ? soil : null, cold };
+    const safe = f => { try { return f(d.daily); } catch (e) { return null; } };   // ett fel i en beräkning visas som saknat värde
+    const v = { rh: monthlyMeans(d.daily.time, d.daily.relative_humidity_2m_mean), soil: soil.every(Boolean) ? soil : null,
+      cold: safe(coldStats), rot: safe(rotStats), heat: safe(heatStats), wind: safe(windStats) };
     if (v.rh || v.soil || v.cold) {
       era5Mem.set(key, v);
       try { localStorage.setItem(key, JSON.stringify(v)); } catch (e) { /* full eller blockerad lagring */ }
     }
     return v;
-  } catch (e) { return { rh: null, soil: null, cold: null }; }
+  } catch (e) { return ERA5_NONE; }
 }
 
 // ---------- Graddagar, köldmängd, tjäldjup och frys-tö-cykler (ERA5-dygnsvärden 1991–2020) ----------
@@ -432,6 +444,116 @@ function coldStats(daily) {
   };
 }
 const seasonLabel = s => s + "/" + String(s + 1).slice(2);
+
+// ---------- Rötklimatindex (Schefferindex), värmeböljor och vindros (ERA5-dygnsvärden 1991–2020) ----------
+// Schefferindex: summa över månader av (T − 2)·(D − 3)/16,7, där T är månadens medeltemperatur (°C) och
+// D antalet dygn med minst 0,25 mm nederbörd. Negativa faktorer räknas som noll.
+const ROT_WET_MM = 0.25;
+const ROT_CLASSES = [[35, "låg rötrisk"], [65, "måttlig rötrisk"], [Infinity, "hög rötrisk"]];
+function rotStats(daily) {
+  const { time, temperature_2m_mean: tm, precipitation_sum: pr } = daily;
+  if (!pr) return null;
+  const mon = {};   // "ÅÅÅÅ-MM" -> { s, n, wet }
+  time.forEach((t, i) => {
+    if (tm[i] === null || pr[i] === null) return;
+    const M = mon[t.slice(0, 7)] || (mon[t.slice(0, 7)] = { s: 0, n: 0, wet: 0 });
+    M.s += tm[i]; M.n++; if (pr[i] >= ROT_WET_MM) M.wet++;
+  });
+  const yr = {};
+  for (const [k, M] of Object.entries(mon)) {
+    if (M.n < 25) continue;
+    const y = k.slice(0, 4), Y = yr[y] || (yr[y] = { idx: 0, months: 0, wet: 0 });
+    Y.idx += Math.max(0, M.s / M.n - 2) * Math.max(0, M.wet - 3) / 16.7; Y.months++; Y.wet += M.wet * 30.44 / M.n;
+  }
+  const full = Object.entries(yr).filter(([, Y]) => Y.months === 12);
+  if (full.length < 25) return null;
+  const vals = full.map(([y, Y]) => ({ y: +y, idx: Y.idx })).sort((a, b) => b.idx - a.idx);
+  return {
+    mean: vals.reduce((s, v) => s + v.idx, 0) / vals.length, max: vals[0], min: vals[vals.length - 1],
+    wetDays: full.reduce((s, [, Y]) => s + Y.wet, 0) / full.length, n: vals.length,
+  };
+}
+
+// Värmebölja enligt SMHI: minst fem dygn i följd med högsta temperatur på minst 25 °C.
+const HEAT_DAY = 25, HEAT_RUN = 5, HOT_DAY = 30, TROPICAL_NIGHT = 20;
+function heatStats(daily) {
+  const { time, temperature_2m_max: tx, temperature_2m_min: tn } = daily;
+  const yr = {};
+  let run = 0, runYear = null;
+  const endRun = () => {
+    if (run >= HEAT_RUN) { const Y = yr[runYear]; Y.waves++; Y.waveDays += run; if (run > Y.longest) Y.longest = run; }
+    run = 0;
+  };
+  time.forEach((t, i) => {
+    const y = +t.slice(0, 4);
+    const Y = yr[y] || (yr[y] = { n: 0, d25: 0, d30: 0, trop: 0, waves: 0, waveDays: 0, longest: 0 });
+    if (tx[i] === null || tn[i] === null) { endRun(); return; }
+    Y.n++;
+    if (tn[i] >= TROPICAL_NIGHT) Y.trop++;
+    if (tx[i] >= HOT_DAY) Y.d30++;
+    if (tx[i] >= HEAT_DAY) { Y.d25++; if (run === 0) runYear = y; run++; } else endRun();
+  });
+  endRun();
+  const full = Object.entries(yr).filter(([, Y]) => Y.n >= 360).map(([y, Y]) => ({ y: +y, ...Y }));
+  if (full.length < 25) return null;
+  const avg = f => full.reduce((s, Y) => s + f(Y), 0) / full.length;
+  const longest = full.reduce((a, b) => (b.longest > a.longest ? b : a));
+  return {
+    waves: avg(Y => Y.waves), waveDays: avg(Y => Y.waveDays), yearsWith: full.filter(Y => Y.waves > 0).length, n: full.length,
+    longest: longest.longest ? longest : null, d25: avg(Y => Y.d25), d30: avg(Y => Y.d30), trop: avg(Y => Y.trop),
+  };
+}
+
+// Vindros: dygnets dominerande vindriktning i 16 sektorer, uppdelat på dygnsmedelvind (m/s).
+const WIND_SECTORS = ["N", "NNO", "NO", "ONO", "O", "OSO", "SO", "SSO", "S", "SSV", "SV", "VSV", "V", "VNV", "NV", "NNV"];
+const WIND_CLASSES = [[2, "under 2 m/s"], [4, "2–4 m/s"], [6, "4–6 m/s"], [Infinity, "över 6 m/s"]];
+const WIND_SECTOR_NAMES = { N: "norr", NNO: "nordnordost", NO: "nordost", ONO: "ostnordost", O: "öster", OSO: "ostsydost", SO: "sydost",
+  SSO: "sydsydost", S: "söder", SSV: "sydsydväst", SV: "sydväst", VSV: "västsydväst", V: "väster", VNV: "västnordväst", NV: "nordväst", NNV: "nordnordväst" };
+function windStats(daily) {
+  const { wind_speed_10m_mean: ws, wind_direction_10m_dominant: wd, precipitation_sum: pr } = daily;
+  if (!ws || !wd) return null;
+  const freq = WIND_SECTORS.map(() => WIND_CLASSES.map(() => 0)), rain = WIND_SECTORS.map(() => 0);
+  let n = 0, sum = 0;
+  ws.forEach((v, i) => {
+    if (v === null || wd[i] === null) return;
+    const s = Math.round(((wd[i] % 360) + 360) % 360 / 22.5) % 16;
+    freq[s][WIND_CLASSES.findIndex(([lim]) => v < lim)]++;
+    if (pr && pr[i] !== null) rain[s] += v * pr[i];   // slagregnsvikt: vind × nederbörd
+    n++; sum += v;
+  });
+  if (n < 365 * 25) return null;
+  const share = freq.map(c => c.map(x => x / n));
+  const tot = share.map(c => c.reduce((a, b) => a + b, 0));
+  const rainTot = rain.reduce((a, b) => a + b, 0);
+  const top = tot.indexOf(Math.max(...tot)), rainTop = rain.indexOf(Math.max(...rain));
+  return { share, tot, mean: sum / n, top, rainTop, rainShare: rainTot ? rain[rainTop] / rainTot : null, rain: rain.map(r => rainTot ? r / rainTot : 0) };
+}
+function windRoseSvg(w) {
+  const R = 78, C = 100, maxTot = Math.max(...w.tot);
+  const ring = Math.ceil(maxTot * 100 / 2) * 2 / 100;   // yttre ring i jämna procent, så att mittringen blir ett heltal
+  const rad = f => Math.sqrt(f / ring) * R;           // ytan proportionell mot andelen
+  const pt = (r, a) => (C + r * Math.sin(a)).toFixed(1) + "," + (C - r * Math.cos(a)).toFixed(1);
+  const wedge = (r0, r1, s) => {
+    const a0 = (s - 0.42) * Math.PI / 8, a1 = (s + 0.42) * Math.PI / 8;
+    return "M" + pt(r0, a0) + " L" + pt(r1, a0) + " A" + r1.toFixed(1) + "," + r1.toFixed(1) + " 0 0 1 " + pt(r1, a1) +
+      " L" + pt(r0, a1) + (r0 > 0 ? " A" + r0.toFixed(1) + "," + r0.toFixed(1) + " 0 0 0 " + pt(r0, a0) : "") + " Z";
+  };
+  const OPAC = [0.25, 0.5, 0.75, 1];
+  let g = "";
+  for (const f of [ring / 2, ring]) g += "<circle cx='" + C + "' cy='" + C + "' r='" + rad(f).toFixed(1) + "' class='wr-grid'/>" +
+    "<text x='" + (C + 3) + "' y='" + (C - rad(f) + 9).toFixed(1) + "' class='wr-lbl'>" + num(f * 100, 0) + " %</text>";
+  for (let s = 0; s < 16; s += 4) g += "<text x='" + pt(R + 12, s * Math.PI / 8).split(",")[0] + "' y='" + (+pt(R + 12, s * Math.PI / 8).split(",")[1] + 4).toFixed(1) +
+    "' class='wr-dir' text-anchor='middle'>" + WIND_SECTORS[s] + "</text>";
+  let bars = "";
+  w.share.forEach((c, s) => {
+    let acc = 0;
+    c.forEach((f, k) => { if (!f) return; const r0 = rad(acc); acc += f; bars += "<path d='" + wedge(r0, rad(acc), s) + "' class='wr-bar' fill-opacity='" + OPAC[k] + "'/>"; });
+  });
+  const legend = WIND_CLASSES.map(([, l], k) => "<span class='wr-key'><i style='opacity:" + OPAC[k] + "'></i>" + l + "</span>").join("");
+  const csv = WIND_SECTORS.map((s, i) => s + " " + num(w.tot[i] * 100, 1) + " %").join(", ");
+  return "<div class='windrose' data-csv='" + csv + "'><svg viewBox='0 0 200 200' role='img' aria-label='Vindros: vanligast vind från " + WIND_SECTOR_NAMES[WIND_SECTORS[w.top]] + "'>" +
+    g + bars + "</svg><div class='wr-legend'>" + legend + "</div></div>";
+}
 
 // ---------- Solinstrålning (SMHI STRÅNG, global instrålning mot horisontell yta) ----------
 const SOLAR_FROM = 2001, SOLAR_TO = 2025;
@@ -609,9 +731,10 @@ const ROW_GROUPS = [
   ["Plats och klimattyp", ["Kommun", "Koordinater", "Höjd över havet", "Klimatzon enligt Köppen"]],
   ["Temperatur och energi", ["Årsmedeltemperatur", "Kallaste / varmaste", "Graddagar, uppvärmning", "Klimatzon energi", "Solinstrålning"]],
   ["Dimensionerande temperaturer", ["DVUT", "DSUT", "Max / min lufttemperatur"]],
-  ["Nederbörd och fukt", ["Årsmedelnederbörd", "Nederbörd relativt", "Relativ luftfuktighet", "Slagregnszon"]],
+  ["Sommarvärme", ["Värmeböljor", "Varma dygn"]],
+  ["Nederbörd och fukt", ["Årsmedelnederbörd", "Nederbörd relativt", "Relativ luftfuktighet", "Slagregnszon", "Rötklimatindex"]],
   ["Kyla, tjäle och mark", ["Köldmängd", "Tjäldjup", "Frys-tö", "Graddagar, köldmängd", "Marktemperatur"]],
-  ["Laster på konstruktioner", ["Snölast", "Referensvindhastighet"]],
+  ["Vind och snö", ["Vindros", "Referensvindhastighet", "Snölast"]],
 ];
 function groupRows(rows) {
   const used = new Set(), sections = [];
@@ -641,7 +764,7 @@ async function show(place, refresh = false) {
     for (const op of ["snolast", "vindlast", "maxtemp", "mintemp"]) r.push(await klimatlast(op, sw));
     return r;
   })();
-  const [temp, precip, elev, [snow, wind, tMax, tMin], { rh, soil, cold, limited }, sun] = await Promise.all([
+  const [temp, precip, elev, [snow, windLoad, tMax, tMin], { rh, soil, cold, rot, heat, wind, limited }, sun] = await Promise.all([
     nearestNormals(PARAM_TEMP, place.lat, place.lon).catch(() => undefined),
     nearestNormals(PARAM_PRECIP, place.lat, place.lon).catch(() => undefined),
     elevation(place.lat, place.lon),
@@ -706,6 +829,36 @@ async function show(place, refresh = false) {
       "<small>Dygn då temperaturen passerar 0 °C (lägsta under och högsta över 0 °C), medel 1991–2020. Frostdygn (lägsta under 0 °C): " + num(cold.frost, 0) + " per år. " +
       "Modellen jämnar ut extremer, och fasader i sol kan frysa och tina oftare än luften. " + src + "</small>"]);
   } else rows.push(["Graddagar, köldmängd, frys-tö", era5Missing]);
+  const src5 = "Modelldata ERA5 1991–2020 via Open-Meteo, rutnät ca 10–25 km";
+  if (rot) {
+    const cls = ROT_CLASSES.find(([lim]) => rot.mean < lim)[1];
+    rows.push(["Rötklimatindex (Scheffer)", "<span class='val'>" + num(rot.mean, 0) + "</span> – " + cls +
+      "<span class='scale' role='img' aria-label='Schefferindex " + num(rot.mean, 0) + " av 100'><span class='mark' style='left:" + Math.min(100, rot.mean) + "%'></span></span>" +
+      "<small>Klimatets inverkan på röta i trä ovan mark som utsätts för väder (t.ex. fasader, staket, altaner). Under 35 låg, 35–65 måttlig, över 65 hög risk. " +
+      "Lägst " + num(rot.min.idx, 0) + " (" + rot.min.y + "), högst " + num(rot.max.idx, 0) + " (" + rot.max.y + "). " +
+      "Räknas från månadens medeltemperatur och antal dygn med nederbörd (minst " + num(ROT_WET_MM, 2) + " mm, i modellen ca " + num(rot.wetDays, 0) + " dygn per år). " +
+      src5 + ". Modellen ger troligen något fler nederbördsdygn än mätningar. Konstruktion, solexponering och skydd mot regn påverkar mer än klimatet.</small>"]);
+  } else rows.push(["Rötklimatindex (Scheffer)", era5Missing]);
+  if (heat) {
+    rows.push(["Värmeböljor", (heat.waves < 0.05
+        ? "<span class='val'>" + (heat.yearsWith ? "Mycket sällsynta" : "Inga") + "</span>"
+        : "<span class='val'>" + num(heat.waves, 1) + " per år</span> (" + num(heat.waveDays, 0) + " dygn)") +
+      "<small>Minst " + HEAT_RUN + " dygn i följd med högsta temperatur minst " + HEAT_DAY + " °C (SMHI:s definition). Förekom " + heat.yearsWith + " av " + heat.n + " somrar" +
+      (heat.longest ? ", längsta " + heat.longest.longest + " dygn (" + heat.longest.y + ")" : "") + ". " +
+      src5 + ". Modellen jämnar ut toppar, så verkliga maxtemperaturer blir ofta något högre, särskilt i städer. " +
+      "Somrarna har blivit varmare, så de senaste åren har fler värmeböljor än medelvärdet.</small>"]);
+    rows.push(["Varma dygn", "<span class='val'>" + num(heat.d25, 0) + " dygn</span> per år med minst " + HEAT_DAY + " °C" +
+      "<small>Minst " + HOT_DAY + " °C: " + num(heat.d30, 1) + " dygn per år. Tropiska nätter (lägsta minst " + TROPICAL_NIGHT + " °C): " + num(heat.trop, 1) + " per år. " +
+      src5 + ".</small>"]);
+  } else rows.push(["Värmeböljor", era5Missing]);
+  if (wind) {
+    const dir = s => WIND_SECTOR_NAMES[WIND_SECTORS[s]];
+    rows.push(["Vindros", windRoseSvg(wind) +
+      "<span class='val'>Vanligast från " + dir(wind.top) + "</span> (" + num(wind.tot[wind.top] * 100, 0) + " % av dygnen), medelvind " + num(wind.mean, 1) + " m/s" +
+      "<small>Dygnets dominerande vindriktning, 10 m över mark. Vind med regn (slagregn) kommer främst från " + dir(wind.rainTop) +
+      (wind.rainShare ? " (" + num(wind.rainShare * 100, 0) + " % av vind × nederbörd)" : "") + ". " +
+      src5 + ". Lokalt styr terräng, bebyggelse och närhet till vatten vinden mycket, och modellen visar ett medel för större område.</small>"]);
+  } else rows.push(["Vindros", era5Missing]);
   const sev = RAIN_SEVERITY[zone];
   let zoneHtml = "<span class='val'>" + zone + " – " + sev.label + "</span>";
   if (sev.pos !== null) zoneHtml += "<span class='scale' role='img' aria-label='" + sev.label + " slagregnsmängd'><span class='mark' style='left:" + sev.pos + "%'></span></span>";
@@ -746,7 +899,7 @@ async function show(place, refresh = false) {
       "<small>Snözonerna i Sverige går från " + num(SNOW_MIN, 1) + " till " + num(SNOW_MAX, 1) + " kN/m² (BFS 2024:6, figur 4:2)</small>";
   }
   rows.push(["Snölast på mark, s<sub>k</sub>", snowHtml]);
-  rows.push(["Referensvindhastighet, v<sub>b</sub>", load(wind, "BFS 2024:6, figur 4:3")]);
+  rows.push(["Referensvindhastighet, v<sub>b</sub>", load(windLoad, "BFS 2024:6, figur 4:3")]);
   rows.push(["Max / min lufttemperatur", tMax && tMin
     ? "<span class='val'>" + esc(tMax.value) + " " + esc(tMax.unit) + " / " + esc(tMin.value) + " " + esc(tMin.unit) + "</span><small>50 års återkomsttid, BFS 2024:6, figur 4:4 och 4:5</small>"
     : "Kunde inte hämtas från Boverket"]);
@@ -798,7 +951,10 @@ $("csv").addEventListener("click", () => {
   for (const tr of $("table").querySelectorAll("tr")) {
     if (tr.classList.contains("grp")) { section = tr.textContent.trim(); continue; }
     const td = tr.querySelector("td"); if (!td) continue;
+    const rose = td.querySelector(".windrose");   // diagrammet ersätts av andelar per riktning
+    if (rose) rose.style.display = "none";
     const parts = td.innerText.split("\n").map(s => s.trim()).filter(Boolean);
+    if (rose) { rose.style.display = ""; parts.push("Andel dygn per riktning: " + rose.dataset.csv); }
     lines.push([section, tr.querySelector("th").innerText, parts[0] || "", parts.slice(1).join(" – ")].map(q).join(";"));
   }
   lines.push("", [q("Referens"), q($("cite").textContent)].join(";"));
