@@ -114,7 +114,7 @@
     Klimatzon enligt Köppen: beräknad med Köppen–Geigers kriterier (Peel m.fl. 2007) från stationernas månadsvärden, med 0 °C som gräns mellan C- och D-klimat.
     Klimatzon energi: geografisk justeringsfaktor F<sub>geo</sub> per kommun enligt Boverkets byggregler, samt den äldre indelningen i klimatzon I–IV.
     Snölast, vindhastighet och max/min lufttemperatur: Boverkets öppna API för klimatlaster (BFS 2024:6) – vägledande värden med skarpa zongränser, den tryckta författningen gäller.
-    Relativ luftfuktighet: ERA5-modelldata 1991–2020 via Open-Meteo (dygnsmedel sammanställda per månad). Solinstrålning: SMHI STRÅNG, global instrålning, medel av hela år 2001–2025.
+    Relativ luftfuktighet och marktemperatur: ERA5-modelldata 1991–2020 via Open-Meteo (dygnsmedel sammanställda per månad). Marktemperaturen är beräknad i modellen, inte uppmätt. Solinstrålning: SMHI STRÅNG, global instrålning, medel av hela år 2001–2025.
     Ortssökning och bakgrundskarta: © OpenStreetMap-bidragsgivare (Nominatim, kartvisning med Leaflet). Höjd: Open-Meteo.
     Slagregnszon: uppslag i en digitaliserad, förenklad zonkarta – noggrannheten är omkring 10–20 km, kontrollera mot kartan nära zongränser.
     <div class="citebox">
@@ -126,6 +126,7 @@
     <details class="changelog">
       <summary>Version <span id="version"></span> · Ändringslogg</summary>
       <dl>
+        <dt>1.12 – 2026-11-23</dt><dd>Marktemperatur (ERA5 via Open-Meteo): årsmedel på 1–2,5 m djup samt kallaste och varmaste månad för tre djup.</dd>
         <dt>1.11 – 2026-11-23</dt><dd>Export: Spara som PDF (utskriftsanpassad sida med källor och referens) och Ladda ner CSV.</dd>
         <dt>1.10 – 2026-11-23</dt><dd>OpenStreetMap-karta under sökrutan, synlig från start. En ort kan väljas genom att klicka i kartan i stället för att söka. Knappen till Fuktår heter nu Kritiska klimatår (fukt, värme, kyla).</dd>
         <dt>1.9 – 2026-11-22</dt><dd>Tar emot plats via länk (?lat=…&amp;lon=…&amp;ort=…), till exempel från Fuktår.</dd>
@@ -147,7 +148,7 @@
 "use strict";
 
 // Uppdatera vid varje ändring, tillsammans med ändringsloggen längst ned på sidan
-const APP_VERSION = "1.11";
+const APP_VERSION = "1.12";
 const APP_URL = "https://fgranne.github.io/Ortsklimat/";
 const APP_AUTHOR = "";   // Fyll i upphovsperson, t.ex. "Efternamn, F.", så kommer den först i referensen
 // Kritiska klimatår, tidigare Fuktår (projektet Klimatfiler), tar emot ?lat=…&lon=…&ort=…
@@ -345,17 +346,26 @@ async function geocode(q) {
   return places;
 }
 
-// ---------- Relativ luftfuktighet (ERA5 via Open-Meteo, 1991–2020) ----------
-async function humidity(lat, lon) {
+// ---------- Relativ luftfuktighet och marktemperatur (ERA5 via Open-Meteo, 1991–2020) ----------
+// Båda hämtas i samma anrop. Returnerar { rh, soil } där var och en kan vara null.
+const SOIL_LAYERS = [
+  ["soil_temperature_100_to_255cm_mean", "1–2,5 m"],
+  ["soil_temperature_28_to_100cm_mean", "0,3–1 m"],
+  ["soil_temperature_0_to_7cm_mean", "0–7 cm"],
+];
+function monthlyMeans(time, values) {
+  const sum = new Array(12).fill(0), cnt = new Array(12).fill(0);
+  time.forEach((t, i) => { const v = values?.[i]; if (v !== null && v !== undefined) { const m = +t.slice(5, 7) - 1; sum[m] += v; cnt[m]++; } });
+  if (cnt.some(n => n < 600)) return null;
+  return { means: sum.map((s, i) => s / cnt[i]), annual: sum.reduce((a, b) => a + b, 0) / cnt.reduce((a, b) => a + b, 0) };
+}
+async function era5(lat, lon) {
   try {
     const d = await getJson("https://archive-api.open-meteo.com/v1/archive?latitude=" + lat.toFixed(4) + "&longitude=" + lon.toFixed(4) +
-      "&start_date=1991-01-01&end_date=2020-12-31&daily=relative_humidity_2m_mean&timezone=Europe%2FStockholm");
-    const sum = new Array(12).fill(0), cnt = new Array(12).fill(0);
-    d.daily.time.forEach((t, i) => { const v = d.daily.relative_humidity_2m_mean[i]; if (v !== null) { const m = +t.slice(5, 7) - 1; sum[m] += v; cnt[m]++; } });
-    if (cnt.some(n => n < 600)) return null;
-    const means = sum.map((s, i) => s / cnt[i]);
-    return { means, annual: sum.reduce((a, b) => a + b, 0) / cnt.reduce((a, b) => a + b, 0) };
-  } catch (e) { return null; }
+      "&start_date=1991-01-01&end_date=2020-12-31&daily=relative_humidity_2m_mean," + SOIL_LAYERS.map(l => l[0]).join(",") + "&timezone=Europe%2FStockholm");
+    const soil = SOIL_LAYERS.map(([key, label]) => { const m = monthlyMeans(d.daily.time, d.daily[key]); return m && { ...m, label }; });
+    return { rh: monthlyMeans(d.daily.time, d.daily.relative_humidity_2m_mean), soil: soil.every(Boolean) ? soil : null };
+  } catch (e) { return { rh: null, soil: null }; }
 }
 
 // ---------- Solinstrålning (SMHI STRÅNG, global instrålning mot horisontell yta) ----------
@@ -541,12 +551,12 @@ async function show(place) {
     for (const op of ["snolast", "vindlast", "maxtemp", "mintemp"]) r.push(await klimatlast(op, sw));
     return r;
   })();
-  const [temp, precip, elev, [snow, wind, tMax, tMin], rh, sun] = await Promise.all([
+  const [temp, precip, elev, [snow, wind, tMax, tMin], { rh, soil }, sun] = await Promise.all([
     nearestNormals(PARAM_TEMP, place.lat, place.lon).catch(() => undefined),
     nearestNormals(PARAM_PRECIP, place.lat, place.lon).catch(() => undefined),
     elevation(place.lat, place.lon),
     loads,
-    humidity(place.lat, place.lon),
+    era5(place.lat, place.lon),
     solar(place.lat, place.lon),
   ]);
   if (id !== runId) return;
@@ -576,6 +586,16 @@ async function show(place) {
       "<small>Fuktigast " + MONTHS[wet] + " " + num(rh.means[wet], 0) + " %, torrast " + MONTHS[dry] + " " + num(rh.means[dry], 0) + " % (månadsmedel). " +
       "Modelldata ERA5 1991–2020 via Open-Meteo, rutnät ca 10–25 km</small>"]);
   } else rows.push(["Relativ luftfuktighet", "Kunde inte hämtas från Open-Meteo"]);
+  if (soil) {
+    const layer = s => {
+      const lo = s.means.indexOf(Math.min(...s.means)), hi = s.means.indexOf(Math.max(...s.means));
+      return s.label + ": " + num(s.means[lo], 1) + " °C (" + MONTHS[lo] + ") till " + num(s.means[hi], 1) + " °C (" + MONTHS[hi] + ")";
+    };
+    rows.push(["Marktemperatur", "<span class='val'>" + num(soil[0].annual, 1) + " °C</span> (årsmedel på 1–2,5 m djup)" +
+      "<small>Kallaste till varmaste månad: " + soil.map(layer).join(" · ") + ". " +
+      "Modelldata ERA5 1991–2020 via Open-Meteo, rutnät ca 10–25 km. Gäller ostörd mark med växtlighet och naturligt snötäcke, " +
+      "inte mark under uppvärmd byggnad eller snöröjda ytor. Värdena är medel över djupintervallen.</small>"]);
+  } else rows.push(["Marktemperatur", "Kunde inte hämtas från Open-Meteo"]);
   const sev = RAIN_SEVERITY[zone];
   let zoneHtml = "<span class='val'>" + zone + " – " + sev.label + "</span>";
   if (sev.pos !== null) zoneHtml += "<span class='scale' role='img' aria-label='" + sev.label + " slagregnsmängd'><span class='mark' style='left:" + sev.pos + "%'></span></span>";
