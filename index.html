@@ -126,7 +126,7 @@
     Klimatzon energi: geografisk justeringsfaktor F<sub>geo</sub> per kommun enligt Boverkets byggregler, samt den äldre indelningen i klimatzon I–IV.
     Snölast, vindhastighet och max/min lufttemperatur: Boverkets öppna API för klimatlaster (BFS 2024:6) – vägledande värden med skarpa zongränser, den tryckta författningen gäller.
     Relativ luftfuktighet och marktemperatur: ERA5-modelldata 1991–2020 via Open-Meteo (dygnsmedel sammanställda per månad). Marktemperaturen är beräknad i modellen, inte uppmätt.
-    Graddagar, köldmängd, tjäldjup och frys-tö-cykler: beräknade ur ERA5-dygnsvärden (medel, högsta och lägsta temperatur) 1991–2020 via Open-Meteo. Tjäldjupet är en grov uppskattning och inte avsett för dimensionering. Rötklimatindex (Schefferindex), värmeböljor (SMHI:s definition) och vindros: beräknade ur ERA5-dygnsvärden för temperatur, nederbörd och vind 1991–2020 via Open-Meteo. Solinstrålning och soltimmar: SMHI STRÅNG, global instrålning och solskenstid, medel av hela år 2001–2025.
+    Graddagar, köldmängd, tjäldjup och frys-tö-cykler: beräknade ur ERA5-dygnsvärden (medel, högsta och lägsta temperatur) 1991–2020 via Open-Meteo. Tjäldjupet är en grov uppskattning och inte avsett för dimensionering. Rötklimatindex (Schefferindex), mögelgynnsamma dygn, värmeböljor (SMHI:s definition) och vindros: beräknade ur ERA5-dygnsvärden för temperatur, luftfuktighet, nederbörd och vind 1991–2020 via Open-Meteo. Solinstrålning och soltimmar: SMHI STRÅNG, global instrålning och solskenstid, medel av hela år 2001–2025.
     Ortssökning och bakgrundskarta: © OpenStreetMap-bidragsgivare (Nominatim, kartvisning med Leaflet). Höjd: Open-Meteo.
     Slagregnszon: uppslag i en digitaliserad, förenklad zonkarta – noggrannheten är omkring 10–20 km, kontrollera mot kartan nära zongränser.
     <div class="citebox">
@@ -138,6 +138,7 @@
     <details class="changelog">
       <summary>Version <span id="version"></span> · Ändringslogg</summary>
       <dl>
+        <dt>1.19 – 2026-11-25</dt><dd>Mögelgynnsamma dygn (minst 10 °C och 80 % RF i dygnsmedel, med antalet dygn över 15 °C som extra uppgift) under Nederbörd och fukt. Data från Open-Meteo hämtas om en gång per ort.</dd>
         <dt>1.18 – 2026-11-24</dt><dd>Soltimmar (solskenstid per år, sommar och vinter) under solinstrålning, från SMHI STRÅNG.</dd>
         <dt>1.17 – 2026-11-24</dt><dd>Framtida klimat har flyttats till den nya sidan Klimatriskrapport, som samlar klimatnormaler, slagregn, energi, laster, kritiska år och framtida klimat för orten. Knapp till rapporten under resultatet.</dd>
         <dt>1.16 – 2026-11-24</dt><dd>Framtida klimat omkring 2040: förändring av temperatur, nederbörd, graddagar, köldmängd, frys-tö-cykler, varma dygn och rötklimatindex enligt fyra CMIP6-modeller (HighResMIP, SSP5-8.5) via Open-Meteo, lagd på dagens värden. Hämtas med en knapp, eftersom datamängden är stor.</dd>
@@ -166,7 +167,7 @@
 "use strict";
 
 // Uppdatera vid varje ändring, tillsammans med ändringsloggen längst ned på sidan
-const APP_VERSION = "1.18";
+const APP_VERSION = "1.19";
 const APP_URL = "https://fgranne.github.io/Ortsklimat/";
 const APP_AUTHOR = "";   // Fyll i upphovsperson, t.ex. "Efternamn, F.", så kommer den först i referensen
 // Kritiska klimatår, tidigare Fuktår (projektet Klimatfiler), tar emot ?lat=…&lon=…&ort=…
@@ -386,8 +387,8 @@ function monthlyMeans(time, values) {
 async function limitKind(r) {
   try { const t = (await r.json()).reason || ""; return /daily/i.test(t) ? "day" : /hourly/i.test(t) ? "hour" : "minute"; } catch (e) { return "minute"; }
 }
-const ERA5_CACHE_VER = "era5-v3:";
-const ERA5_NONE = { rh: null, soil: null, cold: null, rot: null, heat: null, wind: null, years: null };
+const ERA5_CACHE_VER = "era5-v5:";
+const ERA5_NONE = { rh: null, soil: null, cold: null, rot: null, mould: null, heat: null, wind: null, years: null };
 const era5Mem = new Map();
 const era5Key = (lat, lon) => ERA5_CACHE_VER + (Math.round(lat * 50) / 50).toFixed(2) + "," + (Math.round(lon * 50) / 50).toFixed(2);
 async function era5(lat, lon) {
@@ -409,7 +410,7 @@ async function era5(lat, lon) {
     const soil = SOIL_LAYERS.map(([k, label]) => { const m = monthlyMeans(d.daily.time, d.daily[k]); return m && { ...m, label }; });
     const safe = f => { try { return f(d.daily); } catch (e) { return null; } };   // ett fel i en beräkning visas som saknat värde
     const v = { rh: monthlyMeans(d.daily.time, d.daily.relative_humidity_2m_mean), soil: soil.every(Boolean) ? soil : null,
-      cold: safe(coldStats), rot: safe(rotStats), heat: safe(heatStats), wind: safe(windStats), years: safe(yearStats) };
+      cold: safe(coldStats), rot: safe(rotStats), mould: safe(mouldStats), heat: safe(heatStats), wind: safe(windStats), years: safe(yearStats) };
     if (v.rh || v.soil || v.cold) {
       era5Mem.set(key, v);
       try { localStorage.setItem(key, JSON.stringify(v)); } catch (e) { /* full eller blockerad lagring */ }
@@ -480,6 +481,35 @@ function rotStats(daily, minYears = 25) {
   return {
     mean: vals.reduce((s, v) => s + v.idx, 0) / vals.length, max: vals[0], min: vals[vals.length - 1],
     wetDays: full.reduce((s, [, Y]) => s + Y.wet, 0) / full.length, n: vals.length,
+  };
+}
+
+// Mögelgynnsamma dygn: dygnsmedeltemperatur minst MOULD_T och dygnsmedel av relativ fuktighet minst MOULD_RH.
+// Förenklad klimatindikator för utomhusluften (påväxt kräver normalt flera sådana dygn i följd), inte en mögelmodell.
+const MOULD_T = 10, MOULD_T2 = 15, MOULD_RH = 80;   // MOULD_T2: extra uppgift om de mest gynnsamma dygnen
+function mouldStats(daily, minYears = 25) {
+  const { time, temperature_2m_mean: tm, relative_humidity_2m_mean: rh } = daily;
+  if (!rh) return null;
+  const yr = {}, mon = Array(12).fill(0);
+  let run = 0, runYear = null;
+  const endRun = () => { if (run > 0 && run > yr[runYear].longest) yr[runYear].longest = run; run = 0; };
+  time.forEach((t, i) => {
+    const y = +t.slice(0, 4);
+    const Y = yr[y] || (yr[y] = { n: 0, d: 0, d2: 0, longest: 0 });
+    if (tm[i] === null || rh[i] === null) { endRun(); return; }
+    Y.n++;
+    if (tm[i] >= MOULD_T && rh[i] >= MOULD_RH) { Y.d++; if (tm[i] >= MOULD_T2) Y.d2++; mon[+t.slice(5, 7) - 1]++; if (run === 0) runYear = y; run++; } else endRun();
+  });
+  endRun();
+  const full = Object.entries(yr).filter(([, Y]) => Y.n >= 360).map(([y, Y]) => ({ y: +y, ...Y }));
+  if (full.length < minYears) return null;
+  const avg = f => full.reduce((s, Y) => s + f(Y), 0) / full.length;
+  const byDays = [...full].sort((a, b) => b.d - a.d);
+  const total = mon.reduce((a, b) => a + b, 0);
+  return {
+    days: avg(Y => Y.d * 365.25 / Y.n), days2: avg(Y => Y.d2 * 365.25 / Y.n), longest: avg(Y => Y.longest),
+    max: { y: byDays[0].y, d: byDays[0].d }, min: { y: byDays[byDays.length - 1].y, d: byDays[byDays.length - 1].d },
+    months: total ? mon.map(m => m / total) : null, n: full.length,
   };
 }
 
@@ -794,7 +824,7 @@ const ROW_GROUPS = [
   ["Temperatur och energi", ["Årsmedeltemperatur", "Kallaste / varmaste", "Graddagar, uppvärmning", "Klimatzon energi", "Solinstrålning", "Soltimmar"]],
   ["Dimensionerande temperaturer", ["DVUT", "DSUT", "Max / min lufttemperatur"]],
   ["Sommarvärme", ["Värmeböljor", "Varma dygn"]],
-  ["Nederbörd och fukt", ["Årsmedelnederbörd", "Nederbörd relativt", "Relativ luftfuktighet", "Slagregnszon", "Rötklimatindex"]],
+  ["Nederbörd och fukt", ["Årsmedelnederbörd", "Nederbörd relativt", "Relativ luftfuktighet", "Slagregnszon", "Rötklimatindex", "Mögelgynnsamma dygn"]],
   ["Kyla, tjäle och mark", ["Köldmängd", "Tjäldjup", "Frys-tö", "Graddagar, köldmängd", "Marktemperatur"]],
   ["Vind och snö", ["Vindros", "Referensvindhastighet", "Snölast"]],
 ];
@@ -828,7 +858,7 @@ async function show(place, refresh = false) {
     for (const op of ["snolast", "vindlast", "maxtemp", "mintemp"]) r.push(await klimatlast(op, sw));
     return r;
   })();
-  const [temp, precip, elev, [snow, windLoad, tMax, tMin], { rh, soil, cold, rot, heat, wind, limited: era5Limited }, sun] = await Promise.all([
+  const [temp, precip, elev, [snow, windLoad, tMax, tMin], { rh, soil, cold, rot, mould, heat, wind, limited: era5Limited }, sun] = await Promise.all([
     nearestNormals(PARAM_TEMP, place.lat, place.lon).catch(() => undefined),
     nearestNormals(PARAM_PRECIP, place.lat, place.lon).catch(() => undefined),
     elevation(place.lat, place.lon),
@@ -905,6 +935,18 @@ async function show(place, refresh = false) {
       "Räknas från månadens medeltemperatur och antal dygn med nederbörd (minst " + num(ROT_WET_MM, 2) + " mm, i modellen ca " + num(rot.wetDays, 0) + " dygn per år). " +
       src5 + ". Modellen ger troligen något fler nederbördsdygn än mätningar. Konstruktion, solexponering och skydd mot regn påverkar mer än klimatet.</small>"]);
   } else rows.push(["Rötklimatindex (Scheffer)", era5Missing]);
+  if (mould) {
+    const top = mould.months ? mould.months.map((s, m) => [s, m]).sort((a, b) => b[0] - a[0]).slice(0, 3).map(([, m]) => MONTHS[m]) : [];
+    rows.push(["Mögelgynnsamma dygn", "<span class='val'>" + num(mould.days, 0) + " dygn</span> per år, varav " +
+      (mould.days2 < 0.5 ? "färre än 1" : num(mould.days2, 0)) + " med minst " + MOULD_T2 + " °C" +
+      "<small>Dygn med medeltemperatur minst " + MOULD_T + " °C och relativ luftfuktighet minst " + MOULD_RH + " % (dygnsmedel), medel 1991–2020. " +
+      "Dygnen med minst " + MOULD_T2 + " °C är de mest gynnsamma, eftersom påväxten går snabbare i värme. " +
+      "Längsta sammanhängande period i snitt " + num(mould.longest, 0) + " dygn per år. " +
+      (top.length ? "Vanligast i " + top.join(", ") + ". " : "") +
+      "Flest " + mould.max.d + " dygn (" + mould.max.y + "), minst " + mould.min.d + " (" + mould.min.y + "). " +
+      "Förenklad indikator för utomhusluften, användbar för att jämföra orter: påväxt kräver normalt flera sådana dygn i följd, " +
+      "och fukten i själva materialet beror på konstruktion, ventilation och solexponering. " + src5 + ".</small>"]);
+  } else rows.push(["Mögelgynnsamma dygn", era5Missing]);
   if (heat) {
     rows.push(["Värmeböljor", (heat.waves < 0.05
         ? "<span class='val'>" + (heat.yearsWith ? "Mycket sällsynta" : "Inga") + "</span>"
